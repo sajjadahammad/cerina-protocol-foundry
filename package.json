@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "Multi-agent system for autonomous CBT protocol design",
   "scripts": {
+    "start": "npm run install:backend && concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "cd backend && if exist venv\\Scripts\\activate.bat (call venv\\Scripts\\activate.bat && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000) else (python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000)",
+    "start:frontend": "cd frontend && npm run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:backend": "cd backend && if exist venv\\Scripts\\activate.bat (call venv\\Scripts\\activate.bat && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000) else (python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000)",
     "dev:frontend": "cd frontend && npm run dev",
     "install:all": "npm run install:backend && npm run install:frontend",
-    "install:backend": "cd backend && pip install -r requirements.txt",
+    "install:backend": "cd backend && if exist venv\\Scripts\\activate.bat (call venv\\Scripts\\activate.bat && pip install -r requirements.txt) else (pip install -r requirements.txt)",
     "install:frontend": "cd frontend && npm install",
     "setup": "npm run install:all && echo 'Setup complete! Make sure to create backend/.env with your MISTRAL_API_KEY'"
   },
