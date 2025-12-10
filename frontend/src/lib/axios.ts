@@ -1,10 +1,11 @@
 import axios from "axios"
 
-// API base URL - update this when you implement the backend
+// API base URL - matches backend API_V1_PREFIX
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_PREFIX = "/api/v1"
 
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: `${API_BASE_URL}${API_PREFIX}`,
   headers: {
     "Content-Type": "application/json",
   },

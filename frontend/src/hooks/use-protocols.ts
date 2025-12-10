@@ -7,7 +7,7 @@ import {
   type ApproveProtocolRequest,
   type AgentThought,
 } from "@/lib/protocols"
-import { useProtocolStore } from "@/stores/protocol-store"
+import { useProtocolStore } from "../../stores/protocol-store"
 import { useCallback, useEffect, useRef } from "react"
 
 export function useProtocols() {
@@ -93,7 +93,9 @@ export function useProtocolStream(protocolId: string | null) {
     clearStreamingThoughts()
     setStreaming(true)
 
-    const url = protocolsApi.streamUrl(protocolId)
+    // Get token from localStorage for SSE authentication
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    const url = protocolsApi.streamUrl(protocolId, token || undefined)
     const eventSource = new EventSource(url)
     eventSourceRef.current = eventSource
 

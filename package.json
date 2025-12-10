@@ -1,0 +1,18 @@
+{
+  "name": "cerina-protocol-foundry",
+  "version": "1.0.0",
+  "description": "Multi-agent system for autonomous CBT protocol design",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "install:backend": "cd backend && pip install -r requirements.txt",
+    "install:frontend": "cd frontend && npm install",
+    "setup": "npm run install:all && echo 'Setup complete! Make sure to create backend/.env with your MISTRAL_API_KEY'"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
+
