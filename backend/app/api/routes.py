@@ -23,9 +23,11 @@ from app.api.auth import (
     create_access_token,
 )
 from app.api.websocket import router as websocket_router
+from app.api.chat import router as chat_router
 
 router = APIRouter()
 router.include_router(websocket_router)
+router.include_router(chat_router)
 
 
 # Authentication Routes
@@ -164,14 +166,23 @@ async def create_protocol(
         from app.agents.graph import run_protocol_workflow
         from app.config import settings
         
-        # Check if Mistral API key is configured
-        if not settings.MISTRAL_API_KEY:
-            protocol.status = "rejected"
-            db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="MISTRAL_API_KEY is not configured. Please set it in your environment variables."
-            )
+        # Check if LLM API key is configured
+        if settings.LLM_PROVIDER.lower() == "huggingface":
+            if not settings.HUGGINGFACE_API_KEY:
+                protocol.status = "rejected"
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="HUGGINGFACE_API_KEY is not configured. Please set it in your environment variables."
+                )
+        # elif settings.LLM_PROVIDER.lower() == "mistral":
+        #     if not settings.MISTRAL_API_KEY:
+        #         protocol.status = "rejected"
+        #         db.commit()
+        #         raise HTTPException(
+        #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        #             detail="MISTRAL_API_KEY is not configured. Please set it in your environment variables."
+        #         )
         
         # Start workflow and add error callback
         future = run_protocol_workflow(db, protocol.id, request.intent, request.type)
@@ -230,7 +241,7 @@ async def approve_protocol(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Approve a protocol and resume workflow."""
+    """Approve a protocol and resume workflow to finalize."""
     protocol = db.query(Protocol).filter(
         Protocol.id == protocol_id,
         Protocol.user_id == current_user.id
@@ -248,17 +259,64 @@ async def approve_protocol(
             detail=f"Protocol is not awaiting approval (current status: {protocol.status})"
         )
     
-    # Update draft if edited
+    # Update draft if edited by user
     if request.editedContent:
         protocol.current_draft = request.editedContent
     
-    # Mark as approved
-    protocol.status = "approved"
+    # Set approval metadata
     protocol.approved_at = datetime.utcnow()
     protocol.approved_by = current_user.id
-    db.commit()
-    db.refresh(protocol)
     
+    # Resume workflow to finalize node
+    from app.agents.nodes import save_agent_thought, finalize_node
+    from app.agents.state import ProtocolState
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # Save approval thought
+    save_agent_thought(
+        db, protocol_id, "supervisor", "Supervisor",
+        "Human approval received. Resuming workflow to finalize artifact.",
+        "action"
+    )
+    
+    # Reconstruct state from database (checkpoint state)
+    resume_state: ProtocolState = {
+        "protocol_id": protocol_id,
+        "intent": protocol.intent,
+        "protocol_type": protocol.protocol_type,
+        "current_draft": protocol.current_draft,
+        "versions": [],
+        "safety_score": protocol.safety_score or {"score": 0, "flags": [], "notes": ""},
+        "empathy_metrics": protocol.empathy_metrics or {"score": 0, "tone": "", "suggestions": []},
+        "agent_notes": [],
+        "iteration_count": protocol.iteration_count,
+        "status": "awaiting_approval",
+        "next_agent": "finalize",
+        "needs_revision": False,
+        "is_approved": True,
+        "should_halt": False,
+        "last_agent": "halt",
+        "revision_reasons": [],
+    }
+    
+    # Run finalize node in background
+    executor = ThreadPoolExecutor(max_workers=1)
+    
+    def finalize_sync():
+        from app.database import SessionLocal
+        finalize_db = SessionLocal()
+        try:
+            finalize_protocol = finalize_db.query(Protocol).filter(Protocol.id == protocol_id).first()
+            if finalize_protocol:
+                finalize_state = resume_state.copy()
+                finalize_state["current_draft"] = finalize_protocol.current_draft
+                finalize_node(finalize_state, finalize_db)
+        finally:
+            finalize_db.close()
+    
+    executor.submit(finalize_sync)
+    
+    db.refresh(protocol)
     return ProtocolResponse.from_orm(protocol)
 
 
@@ -351,7 +409,6 @@ async def resume_protocol(
     
     # Update status and continue workflow
     protocol.status = "reviewing"
-    protocol.should_halt = False
     db.commit()
     
     # Resume workflow in background

@@ -24,6 +24,8 @@ export function useProtocol(id: string) {
     queryKey: ["protocol", id],
     queryFn: () => protocolsApi.get(id),
     enabled: !!id,
+    staleTime: 10000, // Consider data fresh for 10 seconds (SSE stream provides real-time updates)
+    refetchOnWindowFocus: false, // Don't refetch on window focus since we have SSE
   })
 
   useEffect(() => {
@@ -83,11 +85,15 @@ export function useHaltProtocol() {
 }
 
 export function useProtocolStream(protocolId: string | null) {
-  const { addStreamingThought, setStreaming, clearStreamingThoughts } = useProtocolStore()
+  const { addStreamingThought, setStreaming, clearStreamingThoughts, setActiveProtocol, isStreaming } = useProtocolStore()
+  const queryClient = useQueryClient()
   const eventSourceRef = useRef<EventSource | null>(null)
 
   const connect = useCallback(() => {
     if (!protocolId) return
+    
+    // Don't reconnect if already connected
+    if (eventSourceRef.current) return
 
     // Clear previous thoughts
     clearStreamingThoughts()
@@ -101,8 +107,45 @@ export function useProtocolStream(protocolId: string | null) {
 
     eventSource.onmessage = (event) => {
       try {
-        const thought = JSON.parse(event.data) as AgentThought
-        addStreamingThought(thought)
+        const data = JSON.parse(event.data)
+        
+        if (data.type === "protocol_update") {
+          // Update protocol in store and cache (no need to refetch - we have the data)
+          queryClient.setQueryData(["protocol", protocolId], (old: any) => {
+            if (!old) return old
+            return {
+              ...old,
+              currentDraft: data.currentDraft,
+              status: data.status,
+              iterationCount: data.iterationCount,
+              safetyScore: data.safetyScore,
+              empathyMetrics: data.empathyMetrics,
+            }
+          })
+          // Update active protocol if it's the current one
+          setActiveProtocol((prev) => {
+            if (prev?.id === protocolId) {
+              return {
+                ...prev,
+                currentDraft: data.currentDraft,
+                status: data.status,
+                iterationCount: data.iterationCount,
+                safetyScore: data.safetyScore,
+                empathyMetrics: data.empathyMetrics,
+              }
+            }
+            return prev
+          })
+        } else if (data.id && data.content) {
+          // It's an agent thought - debounce to prevent rapid updates
+          requestAnimationFrame(() => {
+            const thought = data as AgentThought
+            // Ensure all required fields are present
+            if (thought.id && thought.content) {
+              addStreamingThought(thought)
+            }
+          })
+        }
       } catch (error) {
         console.error("Failed to parse SSE message:", error)
       }
@@ -113,11 +156,13 @@ export function useProtocolStream(protocolId: string | null) {
       eventSource.close()
     }
 
-    eventSource.addEventListener("complete", () => {
+    eventSource.addEventListener("complete", (event) => {
       setStreaming(false)
+      // Get final protocol state once after stream completes
+      queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
       eventSource.close()
     })
-  }, [protocolId, addStreamingThought, setStreaming, clearStreamingThoughts])
+  }, [protocolId, addStreamingThought, setStreaming, clearStreamingThoughts, setActiveProtocol, queryClient])
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -133,5 +178,7 @@ export function useProtocolStream(protocolId: string | null) {
     }
   }, [disconnect])
 
-  return { connect, disconnect }
+  const isConnected = eventSourceRef.current !== null && isStreaming
+
+  return { connect, disconnect, isConnected }
 }

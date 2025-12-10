@@ -1,4 +1,6 @@
-"""Server-Sent Events (SSE) streaming endpoint for real-time agent thoughts."""
+"""Server-Sent Events (SSE) streaming endpoint for real-time agent thoughts.
+BACKUP - Original implementation kept for reference.
+"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -94,8 +96,6 @@ async def stream_protocol_thoughts(
                     last_thought_id = thought.id
             
             # Also send protocol updates (for real-time content updates)
-            # Refresh protocol from database to get latest status
-            db.expire_all()  # Clear SQLAlchemy cache to get fresh data
             protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
             if protocol:
                 protocol_update = {
@@ -108,8 +108,7 @@ async def stream_protocol_thoughts(
                 }
                 yield f"data: {json.dumps(protocol_update)}\n\n"
                 
-                # Stop streaming when workflow reaches a terminal or pause state
-                if protocol.status in ["approved", "rejected", "awaiting_approval"]:
+                if protocol.status in ["approved", "rejected"]:
                     yield f"data: {json.dumps({'type': 'complete', 'status': protocol.status})}\n\n"
                     yield f"event: complete\ndata: {json.dumps({'status': protocol.status})}\n\n"
                     break

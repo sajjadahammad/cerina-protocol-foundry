@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -8,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/stores/auth-store"
 import { useLogout } from "@/hooks/use-auth"
-import { LayoutDashboard, Plus, History, Settings, LogOut, User, Mail, MessageCircle, Phone } from "lucide-react"
+import { LayoutDashboard, Plus, History, Settings, LogOut, User, Mail, MessageCircle, Phone, ChevronLeft, ChevronRight } from "lucide-react"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -21,13 +22,27 @@ export function Sidebar() {
   const pathname = usePathname()
   const { user } = useAuthStore()
   const logoutMutation = useLogout()
+  const [isCollapsed, setIsCollapsed] = useState(false)
 
   return (
-    <aside className="flex h-screen w-72 flex-col border-r border-border bg-card">
+    <aside className={cn(
+      "flex h-screen flex-col border-r border-border bg-card transition-all duration-300",
+      isCollapsed ? "w-16" : "w-72"
+    )}>
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border p-4">
-        <Logo />
-        <span className="text-sm font-semibold tracking-tight">Cerina Foundry</span>
+      <div className="flex items-center justify-between border-b border-border p-4">
+        <div className={cn("flex items-center gap-3 transition-opacity", isCollapsed && "opacity-0 w-0 overflow-hidden")}>
+          <Logo />
+          <span className="text-sm font-semibold tracking-tight whitespace-nowrap">Cerina Foundry</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </Button>
       </div>
 
       {/* Navigation */}
@@ -43,69 +58,65 @@ export function Sidebar() {
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                isCollapsed && "justify-center"
               )}
+              title={isCollapsed ? item.name : undefined}
             >
-              <item.icon className="h-4 w-4" />
-              {item.name}
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!isCollapsed && <span className="whitespace-nowrap">{item.name}</span>}
             </Link>
           )
         })}
       </nav>
 
       {/* Support Section */}
-      <div className="border-t border-border p-4">
-        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Support</p>
+      {!isCollapsed && (
+        <div className="border-t border-border p-4">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Support</p>
 
-        <div className="space-y-3 text-xs">
-          <div className="flex items-start gap-2">
-            <Mail className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
-            <div>
-              <p className="text-muted-foreground">Email support</p>
-              <p className="text-foreground">support@cerina.ai</p>
+          <div className="space-y-3 text-xs">
+            <div className="flex items-start gap-2">
+              <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-muted-foreground">Email support</p>
+                <p className="text-foreground">support@cerina.ai</p>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-start gap-2">
-            <MessageCircle className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
-            <div>
-              <p className="text-muted-foreground">Live chat</p>
-              <div className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                <span className="text-foreground">Online</span>
+            <div className="flex items-start gap-2">
+              <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-muted-foreground">Mon - Fri, 9AM - 5PM</p>
+                <p className="text-foreground">+1 (555) 123-4567</p>
               </div>
             </div>
           </div>
-
-          <div className="flex items-start gap-2">
-            <Phone className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
-            <div>
-              <p className="text-muted-foreground">Mon - Fri, 9AM - 5PM</p>
-              <p className="text-foreground">+1 (555) 123-4567</p>
-            </div>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* User Section */}
       <div className="border-t border-border p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-              <User className="h-4 w-4 text-muted-foreground" />
+        <div className={cn("flex items-center gap-2", isCollapsed ? "justify-center" : "justify-between")}>
+          {!isCollapsed && (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                <User className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-medium truncate">{user?.name || "User"}</span>
+                <span className="text-xs text-muted-foreground truncate">{user?.email}</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium">{user?.name || "User"}</span>
-              <span className="text-xs text-muted-foreground">{user?.email}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
+          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {!isCollapsed && <ThemeToggle />}
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8"
               onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
+              title="Logout"
             >
               <LogOut className="h-4 w-4" />
             </Button>

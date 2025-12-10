@@ -9,6 +9,7 @@ from app.agents.nodes import (
     safety_guardian_node,
     clinical_critic_node,
     halt_node,
+    finalize_node,
     save_agent_thought,
 )
 from app.agents.checkpointer import create_checkpointer
@@ -17,7 +18,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 
-def route_next_agent(state: ProtocolState) -> Literal["drafter", "safety_guardian", "clinical_critic", "halt", "finish"]:
+def route_next_agent(state: ProtocolState) -> Literal["drafter", "safety_guardian", "clinical_critic", "halt", "finalize", "finish"]:
     """Route to the next agent based on supervisor decision."""
     return state["next_agent"]
 
@@ -36,6 +37,7 @@ def create_protocol_workflow(db: Session, protocol_id: str):
     workflow.add_node("safety_guardian", lambda state: safety_guardian_node(state, db))
     workflow.add_node("clinical_critic", lambda state: clinical_critic_node(state, db))
     workflow.add_node("halt", lambda state: halt_node(state, db))
+    workflow.add_node("finalize", lambda state: finalize_node(state, db))
     
     # Set entry point
     workflow.set_entry_point("supervisor")
@@ -49,6 +51,7 @@ def create_protocol_workflow(db: Session, protocol_id: str):
             "safety_guardian": "safety_guardian",
             "clinical_critic": "clinical_critic",
             "halt": "halt",
+            "finalize": "finalize",
             "finish": END,
         }
     )
@@ -58,6 +61,7 @@ def create_protocol_workflow(db: Session, protocol_id: str):
     workflow.add_edge("safety_guardian", "supervisor")
     workflow.add_edge("clinical_critic", "supervisor")
     workflow.add_edge("halt", END)
+    workflow.add_edge("finalize", END)
     
     # Compile with checkpointer
     app = workflow.compile(checkpointer=checkpointer)
@@ -95,22 +99,25 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             # Create workflow (checkpointer is created inside)
             app = create_protocol_workflow(thread_db, protocol_id)
             
-            # Start fresh - MemorySaver doesn't persist across restarts
+            # Load current state from database to sync with workflow
+            # This ensures we don't lose progress and have latest metrics
+            # Derive is_approved and should_halt from status field
+            current_status = thread_protocol.status or "drafting"
             state: ProtocolState = {
                 "protocol_id": protocol_id,
-                "intent": intent,
-                "protocol_type": protocol_type,
-                "current_draft": "",
+                "intent": thread_protocol.intent,
+                "protocol_type": thread_protocol.protocol_type,
+                "current_draft": thread_protocol.current_draft or "",
                 "versions": [],
-                "safety_score": {"score": 0, "flags": [], "notes": ""},
-                "empathy_metrics": {"score": 0, "tone": "", "suggestions": []},
+                "safety_score": thread_protocol.safety_score or {"score": 0, "flags": [], "notes": ""},
+                "empathy_metrics": thread_protocol.empathy_metrics or {"score": 0, "tone": "", "suggestions": []},
                 "agent_notes": [],
-                "iteration_count": 0,
-                "status": "drafting",
+                "iteration_count": thread_protocol.iteration_count or 0,
+                "status": current_status,
                 "next_agent": "supervisor",
                 "needs_revision": False,
-                "is_approved": False,
-                "should_halt": False,
+                "is_approved": current_status == "approved",
+                "should_halt": current_status == "awaiting_approval",
                 "last_agent": "",
                 "revision_reasons": [],
             }
@@ -125,10 +132,15 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             thread_protocol.status = "reviewing"
             thread_db.commit()
             
-            # Start the workflow stream
+            # Start the workflow stream with recursion limit
             print(f"Beginning workflow stream for protocol {protocol_id}")
             event_count = 0
-            stream = app.stream(state, config)
+            # Add recursion limit to prevent infinite loops
+            config_with_limit = {
+                **config,
+                "recursion_limit": 200,  # Increased to handle longer workflows
+            }
+            stream = app.stream(state, config_with_limit)
             
             # Check if stream is empty
             first_event = None
@@ -144,13 +156,40 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             for event in stream:
                 event_count += 1
                 print(f"Workflow event {event_count} for protocol {protocol_id}: {list(event.keys())}")
+                
+                # Check recursion limit early
+                if event_count >= 200:
+                    print(f"WARNING: Approaching recursion limit for protocol {protocol_id}, forcing halt")
+                    thread_protocol.status = "awaiting_approval"
+                    thread_db.commit()
+                    break
+                
                 # Each event is a step in the workflow
                 # The checkpointer will save state automatically
                 # Update protocol status periodically
                 thread_db.refresh(thread_protocol)
-                if thread_protocol.status != "reviewing":
+                
+                # Stop if protocol is no longer in reviewing state (halted, approved, or rejected)
+                if thread_protocol.status not in ["reviewing", "drafting"]:
                     print(f"Protocol {protocol_id} status changed to {thread_protocol.status}, stopping workflow")
                     break
+                
+                # Check if we've hit a finish condition in the event
+                if isinstance(event, dict):
+                    should_finish = False
+                    for node_name, node_data in event.items():
+                        if isinstance(node_data, dict):
+                            if node_data.get("next_agent") == "finish":
+                                print(f"Workflow reached finish condition at node {node_name}")
+                                should_finish = True
+                                break
+                            # Also check status in node data
+                            if node_data.get("status") == "awaiting_approval":
+                                print(f"Workflow reached awaiting_approval status at node {node_name}")
+                                should_finish = True
+                                break
+                    if should_finish:
+                        break
             
             print(f"Workflow completed for protocol {protocol_id} after {event_count} events")
         except Exception as e:

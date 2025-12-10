@@ -31,17 +31,50 @@ export function AgentThoughtCard({ thought, isStreaming }: AgentThoughtCardProps
         isStreaming && "thought-streaming",
       )}
     >
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4" />
-          <span className="text-xs font-medium">{config.label}</span>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate text-[10px] font-medium">{config.label}</span>
+          <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
             {thought.type}
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground">{new Date(thought.timestamp).toLocaleTimeString()}</span>
+        <span className="shrink-0 text-[9px] text-muted-foreground">
+          {(() => {
+            try {
+              if (thought.timestamp) {
+                const date = new Date(thought.timestamp)
+                if (!isNaN(date.getTime())) {
+                  // Use local timezone - toLocaleTimeString automatically uses browser's timezone
+                  return date.toLocaleTimeString(undefined, { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit',
+                    hour12: true 
+                  })
+                }
+              }
+              // Fallback to current time if timestamp is invalid
+              return new Date().toLocaleTimeString(undefined, { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: true 
+              })
+            } catch {
+              return new Date().toLocaleTimeString(undefined, { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: true 
+              })
+            }
+          })()}
+        </span>
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{thought.content}</p>
+      <div className="max-h-32 overflow-y-auto">
+        <p className="break-words text-xs leading-relaxed text-foreground">{thought.content}</p>
+      </div>
     </div>
   )
 }

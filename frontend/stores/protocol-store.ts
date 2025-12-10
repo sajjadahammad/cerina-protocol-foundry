@@ -6,7 +6,7 @@ interface ProtocolState {
   streamingThoughts: AgentThought[]
   isStreaming: boolean
   editedContent: string
-  setActiveProtocol: (protocol: Protocol | null) => void
+  setActiveProtocol: (protocol: Protocol | null | ((prev: Protocol | null) => Protocol | null)) => void
   addStreamingThought: (thought: AgentThought) => void
   clearStreamingThoughts: () => void
   setStreaming: (streaming: boolean) => void
@@ -19,16 +19,36 @@ export const useProtocolStore = create<ProtocolState>((set) => ({
   streamingThoughts: [],
   isStreaming: false,
   editedContent: "",
-  setActiveProtocol: (protocol) => set({ activeProtocol: protocol, editedContent: protocol?.currentDraft || "" }),
+  setActiveProtocol: (protocol) => {
+    if (typeof protocol === "function") {
+      set((state) => {
+        const newProtocol = protocol(state.activeProtocol)
+        return {
+          activeProtocol: newProtocol,
+          editedContent: newProtocol?.currentDraft || state.editedContent || "",
+        }
+      })
+    } else {
+      set({ activeProtocol: protocol, editedContent: protocol?.currentDraft || "" })
+    }
+  },
   addStreamingThought: (thought) =>
     set((state) => {
       // Check if thought already exists (by ID) to avoid duplicates
-      const exists = state.streamingThoughts.some((t) => t.id === thought.id)
-      if (exists) {
-        return state
+      // Use a more robust check to prevent infinite loops
+      if (!thought || !thought.id) {
+        return state // Don't add invalid thoughts
       }
+      
+      const exists = state.streamingThoughts.some((t) => t && t.id === thought.id)
+      if (exists) {
+        return state // Return unchanged state to prevent re-render
+      }
+      
+      // Create new array to ensure proper state update
+      const newThoughts = [...state.streamingThoughts, thought]
       return {
-        streamingThoughts: [...state.streamingThoughts, thought],
+        streamingThoughts: newThoughts,
       }
     }),
   clearStreamingThoughts: () => set({ streamingThoughts: [] }),

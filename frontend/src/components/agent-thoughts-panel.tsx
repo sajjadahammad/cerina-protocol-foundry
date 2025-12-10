@@ -2,13 +2,12 @@
 
 import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Loader2, Brain } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 export function AgentThoughtsPanel() {
   const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Combine historical and streaming thoughts, deduplicating by ID
   const historicalThoughts = activeProtocol?.agentThoughts || []
@@ -28,16 +27,54 @@ export function AgentThoughtsPanel() {
     }
   })
   
+  // Filter to show only relevant thoughts:
+  // - Remove duplicate feedback messages with same content
+  // - Keep only the most recent thought per agent per type
   const allThoughts = Array.from(thoughtMap.values())
+  const filteredThoughts = allThoughts.filter((thought, index, arr) => {
+    // Keep all action and thought types
+    if (thought.type === "action" || thought.type === "thought") {
+      return true
+    }
+    // For feedback types, only keep if it's different from previous feedback from same agent
+    if (thought.type === "feedback") {
+      const previousFeedback = arr
+        .slice(0, index)
+        .reverse()
+        .find((t) => t.agentRole === thought.agentRole && t.type === "feedback")
+      if (previousFeedback && previousFeedback.content === thought.content) {
+        return false // Duplicate feedback, skip it
+      }
+      return true
+    }
+    return true
+  })
+  
+  // Sort by timestamp to maintain chronological order
+  const sortedThoughts = filteredThoughts.sort((a, b) => {
+    const timeA = new Date(a.timestamp).getTime()
+    const timeB = new Date(b.timestamp).getTime()
+    return timeA - timeB
+  })
 
   // Auto-scroll to bottom when new thoughts arrive
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current
+      // Only auto-scroll if user is near bottom (within 100px)
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+      if (isNearBottom) {
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+          }
+        })
+      }
     }
-  }, [allThoughts.length])
+  }, [sortedThoughts.length, sortedThoughts])
 
-  if (allThoughts.length === 0 && !isStreaming) {
+  if (sortedThoughts.length === 0 && !isStreaming) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <Brain className="mb-4 h-12 w-12 text-muted-foreground/50" />
@@ -58,17 +95,21 @@ export function AgentThoughtsPanel() {
           </div>
         )}
       </div>
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="space-y-3">
-          {allThoughts.map((thought, index) => (
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        style={{ minHeight: 0 }}
+      >
+        <div className="p-4 space-y-3">
+          {sortedThoughts.map((thought, index) => (
             <AgentThoughtCard
               key={thought.id || `thought-${index}-${thought.timestamp}`}
               thought={thought}
-              isStreaming={isStreaming && index === allThoughts.length - 1}
+              isStreaming={isStreaming && index === sortedThoughts.length - 1}
             />
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }

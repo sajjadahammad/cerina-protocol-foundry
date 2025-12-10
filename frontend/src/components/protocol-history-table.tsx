@@ -95,7 +95,7 @@ export function ProtocolHistoryTable() {
                   <TableCell>
                     <div>
                       <p className="font-medium">{protocol.title}</p>
-                      <p className="line-clamp-1 text-xs text-muted-foreground">{protocol.intent}</p>
+                      <p className="line-clamp-2 whitespace-break-spaces text-xs text-muted-foreground">{protocol.intent}</p>
                     </div>
                   </TableCell>
                   <TableCell>

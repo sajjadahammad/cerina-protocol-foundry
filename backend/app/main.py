@@ -74,19 +74,35 @@ async def startup_event():
     
     # Check LLM configuration
     from app.config import settings
-    if settings.MISTRAL_API_KEY:
-        print(f"✓ MISTRAL_API_KEY is configured")
-        print(f"  Model: {settings.MISTRAL_MODEL}")
-        # Try to initialize LLM
-        try:
-            from app.agents.nodes import get_mistral_llm
-            llm = get_mistral_llm()
-            print("✓ LLM initialized successfully")
-        except Exception as e:
-            print(f"✗ LLM initialization failed: {str(e)}")
-    else:
-        print("✗ MISTRAL_API_KEY is not configured")
-        print("  Set MISTRAL_API_KEY in your environment variables or .env file")
+    from app.agents.nodes import get_llm
+    
+    provider = settings.LLM_PROVIDER.lower()
+    print(f"LLM Provider: {provider}")
+    
+    if provider == "huggingface":
+        if settings.HUGGINGFACE_API_KEY:
+            print(f"✓ HUGGINGFACE_API_KEY is configured")
+            print(f"  Model: {settings.HUGGINGFACE_MODEL}")
+            try:
+                llm = get_llm()
+                print("✓ LLM initialized successfully")
+            except Exception as e:
+                print(f"✗ LLM initialization failed: {str(e)}")
+        else:
+            print("✗ HUGGINGFACE_API_KEY is not configured")
+            print("  Set HUGGINGFACE_API_KEY in your environment variables or .env file")
+    # elif provider == "mistral":
+    #     if settings.MISTRAL_API_KEY:
+    #         print(f"✓ MISTRAL_API_KEY is configured")
+    #         print(f"  Model: {settings.MISTRAL_MODEL}")
+    #         try:
+    #             llm = get_llm()
+    #             print("✓ LLM initialized successfully")
+    #         except Exception as e:
+    #             print(f"✗ LLM initialization failed: {str(e)}")
+    #     else:
+    #         print("✗ MISTRAL_API_KEY is not configured")
+    #         print("  Set MISTRAL_API_KEY in your environment variables or .env file")
     
     # Resume any workflows that were interrupted by server crash
     db = SessionLocal()
@@ -113,26 +129,34 @@ async def health():
 @app.get("/health/llm")
 async def health_llm():
     """Check if LLM is configured and can connect."""
-    from app.agents.nodes import get_mistral_llm
+    from app.agents.nodes import get_llm
     from app.config import settings
     
+    provider = settings.LLM_PROVIDER.lower()
+    
     result = {
+        "provider": provider,
         "configured": False,
-        "model": settings.MISTRAL_MODEL,
+        "model": settings.HUGGINGFACE_MODEL if provider == "huggingface" else settings.MISTRAL_MODEL,
         "connected": False,
         "error": None,
     }
     
     # Check if API key is configured
-    if not settings.MISTRAL_API_KEY:
-        result["error"] = "MISTRAL_API_KEY not configured in environment variables"
-        return result
+    if provider == "huggingface":
+        if not settings.HUGGINGFACE_API_KEY:
+            result["error"] = "HUGGINGFACE_API_KEY not configured in environment variables"
+            return result
+    # elif provider == "mistral":
+    #     if not settings.MISTRAL_API_KEY:
+    #         result["error"] = "MISTRAL_API_KEY not configured in environment variables"
+    #         return result
     
     result["configured"] = True
     
     # Try to initialize LLM
     try:
-        llm = get_mistral_llm()
+        llm = get_llm()
         result["connected"] = True
         
         # Try a simple test call

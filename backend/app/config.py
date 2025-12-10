@@ -16,9 +16,16 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./cerina_foundry.db")
     
-    # Mistral AI
+    # LLM Provider Selection
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "huggingface")  # "huggingface" or "mistral"
+    
+    # Mistral AI (commented out - can switch back by setting LLM_PROVIDER=mistral)
     MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
     MISTRAL_MODEL: str = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
+    
+    # Hugging Face (Qwen 2.5 Pro)
+    HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")
+    HUGGINGFACE_MODEL: str = os.getenv("HUGGINGFACE_MODEL", "Qwen/Qwen2.5-72B-Instruct")
     
     # CORS
     CORS_ORIGINS: list[str] = [

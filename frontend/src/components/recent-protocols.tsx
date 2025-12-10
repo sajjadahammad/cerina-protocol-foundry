@@ -62,10 +62,10 @@ export function RecentProtocols() {
                     {protocol.status.replace("_", " ")}
                   </Badge>
                 </div>
-                <div className="mt-2 flex items-center gap-4 text-[10px] text-muted-foreground">
-                  <span>Safety: {protocol.safetyScore.score}%</span>
-                  <span>Empathy: {protocol.empathyMetrics.score}%</span>
-                  <span>Iterations: {protocol.iterationCount}</span>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground sm:gap-4">
+                  <span className="whitespace-nowrap">Safety: {protocol.safetyScore.score}%</span>
+                  <span className="whitespace-nowrap">Empathy: {protocol.empathyMetrics.score}%</span>
+                  <span className="whitespace-nowrap">Iterations: {protocol.iterationCount}</span>
                 </div>
               </Link>
             ))}
