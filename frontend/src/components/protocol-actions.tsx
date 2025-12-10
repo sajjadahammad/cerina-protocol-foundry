@@ -59,9 +59,9 @@ export function ProtocolActions() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="border-t border-border bg-card"
+        className={`shrink-0 border-t border-border ${isAwaitingApproval ? 'bg-amber-500/5' : 'bg-card'}`}
       >
-        {/* Halt Alert */}
+        {/* Approval Alert and Buttons */}
         <AnimatePresence>
           {isAwaitingApproval && (
             <motion.div
@@ -73,7 +73,7 @@ export function ProtocolActions() {
               <Alert className="m-4 border-amber-500/50 bg-amber-500/10">
                 <AlertCircle className="h-4 w-4 text-amber-500" />
                 <AlertDescription className="text-sm text-amber-900 dark:text-amber-100">
-                  Workflow halted. Please review the draft below. You can edit the content or approve it to finalize.
+                  <strong>Action Required:</strong> Review the protocol above and approve or reject it to finalize.
                 </AlertDescription>
               </Alert>
             </motion.div>
@@ -99,35 +99,40 @@ export function ProtocolActions() {
 
           <div className="flex-1" />
 
-          <AnimatePresence mode="wait">
-            {isAwaitingApproval && (
-              <motion.div
-                key="approval-buttons"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.2 }}
-                className="flex items-center gap-2"
-              >
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button variant="outline" onClick={() => setRejectDialogOpen(true)} disabled={rejectMutation.isPending}>
-                    <X className="mr-2 h-4 w-4" />
-                    Reject
-                  </Button>
-                </motion.div>
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button onClick={handleApprove} disabled={approveMutation.isPending}>
-                    {approveMutation.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="mr-2 h-4 w-4" />
-                    )}
-                    Approve
-                  </Button>
-                </motion.div>
+          {/* Always show approval buttons when status is awaiting_approval */}
+          {isAwaitingApproval && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-3"
+            >
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setRejectDialogOpen(true)} 
+                  disabled={rejectMutation.isPending}
+                  className="border-red-500/50 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                >
+                  <X className="mr-2 h-4 w-4" />
+                  Reject
+                </Button>
               </motion.div>
-            )}
-          </AnimatePresence>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  onClick={handleApprove} 
+                  disabled={approveMutation.isPending}
+                  className="bg-green-600 text-white hover:bg-green-700"
+                >
+                  {approveMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="mr-2 h-4 w-4" />
+                  )}
+                  Approve Protocol
+                </Button>
+              </motion.div>
+            </motion.div>
+          )}
         </div>
       </motion.div>
 

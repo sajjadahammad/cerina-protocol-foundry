@@ -1,5 +1,6 @@
 "use client"
 
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import type { AgentThought, AgentRole } from "@/lib/protocols"
 import { Shield, Pencil, Brain, Users } from "lucide-react"
@@ -17,18 +18,26 @@ const defaultConfig = { icon: Brain, label: "Agent", colorClass: "border-l-gray-
 interface AgentThoughtCardProps {
   thought: AgentThought
   isStreaming?: boolean
+  index?: number
 }
 
-export function AgentThoughtCard({ thought, isStreaming }: AgentThoughtCardProps) {
+export function AgentThoughtCard({ thought, isStreaming, index = 0 }: AgentThoughtCardProps) {
   const config = agentConfig[thought.agentRole] || defaultConfig
   const Icon = config.icon
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, x: -20, scale: 0.95 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      transition={{ 
+        duration: 0.3, 
+        delay: index * 0.05,
+        ease: "easeOut"
+      }}
       className={cn(
         "rounded-md border border-border border-l-4 p-3 transition-all",
         config.colorClass,
-        isStreaming && "thought-streaming",
+        isStreaming && "animate-pulse",
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -75,6 +84,6 @@ export function AgentThoughtCard({ thought, isStreaming }: AgentThoughtCardProps
       <div className="max-h-32 overflow-y-auto">
         <p className="break-words text-xs leading-relaxed text-foreground">{thought.content}</p>
       </div>
-    </div>
+    </motion.div>
   )
 }

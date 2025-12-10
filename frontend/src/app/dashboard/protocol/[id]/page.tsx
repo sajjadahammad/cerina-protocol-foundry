@@ -71,8 +71,10 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
       {/* Main Content */}
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Editor Panel */}
-        <div className="flex flex-1 flex-col border-b border-border lg:border-b-0 lg:border-r">
-          <ProtocolEditor />
+        <div className="flex flex-1 flex-col overflow-hidden border-b border-border lg:border-b-0 lg:border-r">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ProtocolEditor />
+          </div>
           <ProtocolActions />
         </div>
 

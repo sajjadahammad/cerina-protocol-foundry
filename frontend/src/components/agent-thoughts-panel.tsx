@@ -1,5 +1,6 @@
 "use client"
 
+import { AnimatePresence, motion } from "framer-motion"
 import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
 import { Loader2, Brain } from "lucide-react"
@@ -101,13 +102,16 @@ export function AgentThoughtsPanel() {
         style={{ minHeight: 0 }}
       >
         <div className="p-4 space-y-3">
-          {sortedThoughts.map((thought, index) => (
-            <AgentThoughtCard
-              key={thought.id || `thought-${index}-${thought.timestamp}`}
-              thought={thought}
-              isStreaming={isStreaming && index === sortedThoughts.length - 1}
-            />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {sortedThoughts.map((thought, index) => (
+              <AgentThoughtCard
+                key={thought.id || `thought-${index}-${thought.timestamp}`}
+                thought={thought}
+                isStreaming={isStreaming && index === sortedThoughts.length - 1}
+                index={index}
+              />
+            ))}
+          </AnimatePresence>
         </div>
       </div>
     </div>
