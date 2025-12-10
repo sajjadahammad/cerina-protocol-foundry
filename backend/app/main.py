@@ -74,7 +74,7 @@ async def startup_event():
     
     # Check LLM configuration
     from app.config import settings
-    from app.agents.nodes import get_llm
+    from app.utils.llm import get_llm
     
     provider = settings.LLM_PROVIDER.lower()
     print(f"LLM Provider: {provider}")
@@ -129,7 +129,7 @@ async def health():
 @app.get("/health/llm")
 async def health_llm():
     """Check if LLM is configured and can connect."""
-    from app.agents.nodes import get_llm
+    from app.utils.llm import get_llm
     from app.config import settings
     
     provider = settings.LLM_PROVIDER.lower()

@@ -5,51 +5,8 @@ import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
 import { Loader2, Brain } from "lucide-react"
 import { useEffect, useRef, useState, useMemo } from "react"
-import type { AgentThought } from "@/lib/protocols"
-
-// Fallback processing function (runs on main thread if worker unavailable)
-function processThoughtsSync(
-  historicalThoughts: AgentThought[],
-  streamingThoughts: AgentThought[]
-): AgentThought[] {
-  const thoughtMap = new Map<string, AgentThought>()
-
-  historicalThoughts.forEach((thought) => {
-    if (thought.id) {
-      thoughtMap.set(thought.id, thought)
-    }
-  })
-
-  streamingThoughts.forEach((thought) => {
-    if (thought.id) {
-      thoughtMap.set(thought.id, thought)
-    }
-  })
-
-  const allThoughts = Array.from(thoughtMap.values())
-  const filteredThoughts = allThoughts.filter((thought, index, arr) => {
-    if (thought.type === "action" || thought.type === "thought") {
-      return true
-    }
-    if (thought.type === "feedback") {
-      const previousFeedback = arr
-        .slice(0, index)
-        .reverse()
-        .find((t) => t.agentRole === thought.agentRole && t.type === "feedback")
-      if (previousFeedback && previousFeedback.content === thought.content) {
-        return false
-      }
-      return true
-    }
-    return true
-  })
-
-  return filteredThoughts.sort((a, b) => {
-    const timeA = new Date(a.timestamp).getTime()
-    const timeB = new Date(b.timestamp).getTime()
-    return timeA - timeB
-  })
-}
+import type { AgentThought } from "@/types/protocols"
+import { processThoughts } from "@/utils/thought-processor"
 
 export function AgentThoughtsPanel() {
   const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
@@ -95,7 +52,7 @@ export function AgentThoughtsPanel() {
   // Process thoughts - use worker if available, otherwise use memoized sync processing
   const sortedThoughts = useMemo(() => {
     if (!useWorker || !workerRef.current) {
-      return processThoughtsSync(historicalThoughts, streamingThoughts)
+      return processThoughts(historicalThoughts, streamingThoughts)
     }
     return processedThoughts
   }, [historicalThoughts, streamingThoughts, useWorker, processedThoughts])

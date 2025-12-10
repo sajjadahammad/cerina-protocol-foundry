@@ -1,27 +1,18 @@
 import api from "@/lib/axios"
+import type {
+  LoginCredentials,
+  RegisterCredentials,
+  User,
+  AuthResponse,
+} from "@/types/auth"
 
-export interface LoginCredentials {
-  email: string
-  password: string
-}
-
-export interface RegisterCredentials {
-  name: string
-  email: string
-  password: string
-}
-
-export interface User {
-  id: string
-  name: string
-  email: string
-  avatar?: string
-}
-
-export interface AuthResponse {
-  user: User
-  token: string
-}
+// Re-export types for backward compatibility
+export type {
+  LoginCredentials,
+  RegisterCredentials,
+  User,
+  AuthResponse,
+} from "@/types/auth"
 
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {

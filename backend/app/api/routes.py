@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.protocol import User, Protocol, ProtocolVersion, AgentThought
-from app.models.state import (
+from app.types import (
     LoginRequest,
     RegisterRequest,
     AuthResponse,
@@ -22,6 +22,7 @@ from app.api.auth import (
     authenticate_user,
     create_access_token,
 )
+from app.utils.protocol_helpers import get_protocol_or_404, verify_protocol_status
 from app.api.websocket import router as websocket_router
 from app.api.chat import router as chat_router
 
@@ -140,17 +141,7 @@ async def get_protocol(
     db: Session = Depends(get_db)
 ):
     """Get a single protocol by ID."""
-    protocol = db.query(Protocol).filter(
-        Protocol.id == protocol_id,
-        Protocol.user_id == current_user.id
-    ).first()
-    
-    if not protocol:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Protocol not found"
-        )
-    
+    protocol = get_protocol_or_404(db, protocol_id, current_user.id, check_ownership=True)
     return ProtocolResponse.from_orm(protocol)
 
 
@@ -262,22 +253,8 @@ async def approve_protocol(
     db: Session = Depends(get_db)
 ):
     """Approve a protocol and resume workflow to finalize."""
-    protocol = db.query(Protocol).filter(
-        Protocol.id == protocol_id,
-        Protocol.user_id == current_user.id
-    ).first()
-    
-    if not protocol:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Protocol not found"
-        )
-    
-    if protocol.status != "awaiting_approval":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Protocol is not awaiting approval (current status: {protocol.status})"
-        )
+    protocol = get_protocol_or_404(db, protocol_id, current_user.id, check_ownership=True)
+    verify_protocol_status(protocol, "awaiting_approval")
     
     # Update draft if edited by user
     if request.editedContent:
@@ -348,16 +325,7 @@ async def reject_protocol(
     db: Session = Depends(get_db)
 ):
     """Reject a protocol."""
-    protocol = db.query(Protocol).filter(
-        Protocol.id == protocol_id,
-        Protocol.user_id == current_user.id
-    ).first()
-    
-    if not protocol:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Protocol not found"
-        )
+    protocol = get_protocol_or_404(db, protocol_id, current_user.id, check_ownership=True)
     
     protocol.status = "rejected"
     protocol.rejected_reason = request.reason
@@ -374,16 +342,7 @@ async def halt_protocol(
     db: Session = Depends(get_db)
 ):
     """Manually halt a protocol workflow."""
-    protocol = db.query(Protocol).filter(
-        Protocol.id == protocol_id,
-        Protocol.user_id == current_user.id
-    ).first()
-    
-    if not protocol:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Protocol not found"
-        )
+    protocol = get_protocol_or_404(db, protocol_id, current_user.id, check_ownership=True)
     
     # Update status to awaiting_approval
     protocol.status = "awaiting_approval"
@@ -399,22 +358,8 @@ async def resume_protocol(
     db: Session = Depends(get_db)
 ):
     """Resume a halted protocol workflow."""
-    protocol = db.query(Protocol).filter(
-        Protocol.id == protocol_id,
-        Protocol.user_id == current_user.id
-    ).first()
-    
-    if not protocol:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Protocol not found"
-        )
-    
-    if protocol.status != "awaiting_approval":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Protocol is not halted (current status: {protocol.status})"
-        )
+    protocol = get_protocol_or_404(db, protocol_id, current_user.id, check_ownership=True)
+    verify_protocol_status(protocol, "awaiting_approval", "Protocol is not halted")
     
     # Resume workflow by continuing from checkpoint
     from app.agents.graph import create_protocol_workflow
