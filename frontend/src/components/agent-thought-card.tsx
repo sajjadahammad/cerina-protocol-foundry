@@ -11,13 +11,16 @@ const agentConfig: Record<AgentRole, { icon: typeof Shield; label: string; color
   supervisor: { icon: Users, label: "Supervisor", colorClass: "border-l-purple-500 bg-purple-500/5" },
 }
 
+// Default config for unknown agent roles
+const defaultConfig = { icon: Brain, label: "Agent", colorClass: "border-l-gray-500 bg-gray-500/5" }
+
 interface AgentThoughtCardProps {
   thought: AgentThought
   isStreaming?: boolean
 }
 
 export function AgentThoughtCard({ thought, isStreaming }: AgentThoughtCardProps) {
-  const config = agentConfig[thought.agentRole]
+  const config = agentConfig[thought.agentRole] || defaultConfig
   const Icon = config.icon
 
   return (

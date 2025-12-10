@@ -10,8 +10,25 @@ export function AgentThoughtsPanel() {
   const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Combine historical and streaming thoughts
-  const allThoughts = [...(activeProtocol?.agentThoughts || []), ...streamingThoughts]
+  // Combine historical and streaming thoughts, deduplicating by ID
+  const historicalThoughts = activeProtocol?.agentThoughts || []
+  const thoughtMap = new Map<string, typeof historicalThoughts[0]>()
+  
+  // Add historical thoughts first
+  historicalThoughts.forEach((thought) => {
+    if (thought.id) {
+      thoughtMap.set(thought.id, thought)
+    }
+  })
+  
+  // Add streaming thoughts (will overwrite historical if same ID, keeping latest)
+  streamingThoughts.forEach((thought) => {
+    if (thought.id) {
+      thoughtMap.set(thought.id, thought)
+    }
+  })
+  
+  const allThoughts = Array.from(thoughtMap.values())
 
   // Auto-scroll to bottom when new thoughts arrive
   useEffect(() => {
@@ -45,7 +62,7 @@ export function AgentThoughtsPanel() {
         <div className="space-y-3">
           {allThoughts.map((thought, index) => (
             <AgentThoughtCard
-              key={thought.id || index}
+              key={thought.id || `thought-${index}-${thought.timestamp}`}
               thought={thought}
               isStreaming={isStreaming && index === allThoughts.length - 1}
             />

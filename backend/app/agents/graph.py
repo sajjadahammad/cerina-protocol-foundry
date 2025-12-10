@@ -74,10 +74,6 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
     if not protocol:
         raise ValueError(f"Protocol {protocol_id} not found")
     
-    # Create workflow and checkpointer
-    app = create_protocol_workflow(db, protocol_id)
-    checkpointer = create_checkpointer(db, protocol_id)
-    
     # Create config for this thread
     config = {
         "configurable": {
@@ -85,55 +81,97 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
         }
     }
     
-    # Check for existing checkpoint first (for crash recovery)
-    existing_checkpoint = checkpointer.get(config)
-    
-    if existing_checkpoint and existing_checkpoint.get("checkpoint"):
-        # Resume from checkpoint
-        state = existing_checkpoint["checkpoint"]["channel_values"]
-        save_agent_thought(
-            db, protocol_id, "supervisor", "Supervisor",
-            f"Resuming workflow from checkpoint. Current iteration: {state.get('iteration_count', 0)}, Status: {state.get('status', 'unknown')}",
-            "action"
-        )
-    else:
-        # Start fresh
-        state: ProtocolState = {
-            "protocol_id": protocol_id,
-            "intent": intent,
-            "protocol_type": protocol_type,
-            "current_draft": "",
-            "versions": [],
-            "safety_score": {"score": 0, "flags": [], "notes": ""},
-            "empathy_metrics": {"score": 0, "tone": "", "suggestions": []},
-            "agent_notes": [],
-            "iteration_count": 0,
-            "status": "drafting",
-            "next_agent": "supervisor",
-            "needs_revision": False,
-            "is_approved": False,
-            "should_halt": False,
-            "last_agent": "",
-            "revision_reasons": [],
-        }
-        save_agent_thought(
-            db, protocol_id, "supervisor", "Supervisor",
-            "Starting new workflow.",
-            "action"
-        )
-    
     # Run workflow in thread pool (since LangGraph can be blocking)
     def run_sync():
+        # Create a new database session for this thread
+        from app.database import SessionLocal
+        thread_db = SessionLocal()
         try:
-            for event in app.stream(state, config):
+            # Get fresh protocol instance in this thread's session
+            thread_protocol = thread_db.query(Protocol).filter(Protocol.id == protocol_id).first()
+            if not thread_protocol:
+                raise ValueError(f"Protocol {protocol_id} not found in background thread")
+            
+            # Create workflow (checkpointer is created inside)
+            app = create_protocol_workflow(thread_db, protocol_id)
+            
+            # Start fresh - MemorySaver doesn't persist across restarts
+            state: ProtocolState = {
+                "protocol_id": protocol_id,
+                "intent": intent,
+                "protocol_type": protocol_type,
+                "current_draft": "",
+                "versions": [],
+                "safety_score": {"score": 0, "flags": [], "notes": ""},
+                "empathy_metrics": {"score": 0, "tone": "", "suggestions": []},
+                "agent_notes": [],
+                "iteration_count": 0,
+                "status": "drafting",
+                "next_agent": "supervisor",
+                "needs_revision": False,
+                "is_approved": False,
+                "should_halt": False,
+                "last_agent": "",
+                "revision_reasons": [],
+            }
+            save_agent_thought(
+                thread_db, protocol_id, "supervisor", "Supervisor",
+                "Starting new workflow.",
+                "action"
+            )
+            
+            # Save initial thought and update status BEFORE starting workflow
+            print(f"Starting workflow for protocol {protocol_id}")
+            thread_protocol.status = "reviewing"
+            thread_db.commit()
+            
+            # Start the workflow stream
+            print(f"Beginning workflow stream for protocol {protocol_id}")
+            event_count = 0
+            stream = app.stream(state, config)
+            
+            # Check if stream is empty
+            first_event = None
+            try:
+                first_event = next(stream)
+                event_count += 1
+                print(f"Workflow event {event_count} for protocol {protocol_id}: {list(first_event.keys())}")
+            except StopIteration:
+                print(f"WARNING: Workflow stream is empty for protocol {protocol_id}")
+                raise ValueError("Workflow stream produced no events")
+            
+            # Process remaining events
+            for event in stream:
+                event_count += 1
+                print(f"Workflow event {event_count} for protocol {protocol_id}: {list(event.keys())}")
                 # Each event is a step in the workflow
                 # The checkpointer will save state automatically
-                pass
+                # Update protocol status periodically
+                thread_db.refresh(thread_protocol)
+                if thread_protocol.status != "reviewing":
+                    print(f"Protocol {protocol_id} status changed to {thread_protocol.status}, stopping workflow")
+                    break
+            
+            print(f"Workflow completed for protocol {protocol_id} after {event_count} events")
         except Exception as e:
-            # Update protocol status on error
-            protocol.status = "rejected"
-            db.commit()
-            raise e
+            # Log error and update protocol status
+            import traceback
+            error_msg = f"Workflow error: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            try:
+                save_agent_thought(
+                    thread_db, protocol_id, "supervisor", "Supervisor",
+                    f"Workflow failed: {str(e)}",
+                    "feedback"
+                )
+                thread_protocol = thread_db.query(Protocol).filter(Protocol.id == protocol_id).first()
+                if thread_protocol:
+                    thread_protocol.status = "rejected"
+                    thread_db.commit()
+            except Exception as db_error:
+                print(f"Error updating protocol status: {str(db_error)}")
+        finally:
+            thread_db.close()
     
     # Run in background thread
     executor = ThreadPoolExecutor(max_workers=1)

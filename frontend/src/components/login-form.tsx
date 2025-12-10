@@ -4,6 +4,9 @@ import type React from "react"
 
 import { useState } from "react"
 import Link from "next/link"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
 import { useLogin } from "@/hooks/use-auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,15 +15,31 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { AlertCircle, Loader2, Eye, EyeOff } from "lucide-react"
 import { Logo } from "@/components/logo"
 
+const loginSchema = z.object({
+  email: z.string().min(1, "Email is required").email("Please enter a valid email address").trim(),
+  password: z.string().min(1, "Password is required"),
+})
+
+type LoginFormData = z.infer<typeof loginSchema>
+
 export function LoginForm() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const loginMutation = useLogin()
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    loginMutation.mutate({ email, password })
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+    mode: "onBlur",
+  })
+
+  const onSubmit = (data: LoginFormData) => {
+    loginMutation.mutate({
+      email: data.email,
+      password: data.password,
+    })
   }
 
   return (
@@ -35,7 +54,7 @@ export function LoginForm() {
             <CardDescription className="mt-1">Sign in to Cerina Protocol Foundry</CardDescription>
           </div>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
             {loginMutation.isError && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -49,11 +68,10 @@ export function LoginForm() {
                 id="email"
                 type="email"
                 placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="font-mono"
+                {...register("email")}
+                className={errors.email ? "border-destructive font-mono" : "font-mono"}
               />
+              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -62,10 +80,8 @@ export function LoginForm() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="pr-10 font-mono"
+                  {...register("password")}
+                  className={errors.password ? "border-destructive pr-10 font-mono" : "pr-10 font-mono"}
                 />
                 <button
                   type="button"
@@ -75,9 +91,10 @@ export function LoginForm() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col gap-4">
+          <CardFooter className="flex flex-col gap-4 mt-7">
             <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
               {loginMutation.isPending ? (
                 <>

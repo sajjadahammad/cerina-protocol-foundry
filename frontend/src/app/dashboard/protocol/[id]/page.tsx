@@ -16,8 +16,19 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
   const { connect, disconnect } = useProtocolStream(id)
 
   useEffect(() => {
-    if (protocol && (protocol.status === "drafting" || protocol.status === "reviewing")) {
-      connect()
+    if (protocol) {
+      // Connect if protocol is in an active state or just created (might be transitioning)
+      const activeStatuses = ["drafting", "reviewing", "awaiting_approval"]
+      // Also connect if rejected but has no thoughts yet (might be starting)
+      const shouldConnect =
+        activeStatuses.includes(protocol.status) ||
+        (protocol.status === "rejected" && protocol.agentThoughts.length <= 1)
+
+      if (shouldConnect) {
+        connect()
+      } else {
+        disconnect()
+      }
     }
 
     return () => {

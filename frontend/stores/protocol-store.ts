@@ -21,9 +21,16 @@ export const useProtocolStore = create<ProtocolState>((set) => ({
   editedContent: "",
   setActiveProtocol: (protocol) => set({ activeProtocol: protocol, editedContent: protocol?.currentDraft || "" }),
   addStreamingThought: (thought) =>
-    set((state) => ({
-      streamingThoughts: [...state.streamingThoughts, thought],
-    })),
+    set((state) => {
+      // Check if thought already exists (by ID) to avoid duplicates
+      const exists = state.streamingThoughts.some((t) => t.id === thought.id)
+      if (exists) {
+        return state
+      }
+      return {
+        streamingThoughts: [...state.streamingThoughts, thought],
+      }
+    }),
   clearStreamingThoughts: () => set({ streamingThoughts: [] }),
   setStreaming: (isStreaming) => set({ isStreaming }),
   setEditedContent: (editedContent) => set({ editedContent }),

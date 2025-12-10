@@ -1,15 +1,16 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { JetBrains_Mono } from "next/font/google"
+import { DM_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import { QueryProvider } from "@/components/query-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
 
-const jetbrainsMono = JetBrains_Mono({
+const dmMono = DM_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
+  weight: ["300", "400", "500"],
 })
 
 export const metadata: Metadata = {
@@ -24,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${jetbrainsMono.variable} font-mono antialiased`}>
+      <body className={`${dmMono.variable} font-mono antialiased`}>
         <QueryProvider>
           <ThemeProvider>
             <AuthProvider>{children}</AuthProvider>

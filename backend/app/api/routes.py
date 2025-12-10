@@ -142,6 +142,7 @@ async def create_protocol(
     from app.agents.graph import create_protocol_workflow
     
     # Create protocol record
+    now = datetime.utcnow()
     protocol = Protocol(
         user_id=current_user.id,
         title=f"{request.type.replace('_', ' ').title()} Protocol",
@@ -152,6 +153,7 @@ async def create_protocol(
         iteration_count=0,
         safety_score={"score": 0, "flags": [], "notes": ""},
         empathy_metrics={"score": 0, "tone": "", "suggestions": []},
+        updated_at=now,
     )
     db.add(protocol)
     db.commit()
@@ -160,7 +162,49 @@ async def create_protocol(
     # Start the agent workflow asynchronously
     try:
         from app.agents.graph import run_protocol_workflow
-        run_protocol_workflow(db, protocol.id, request.intent, request.type)
+        from app.config import settings
+        
+        # Check if Mistral API key is configured
+        if not settings.MISTRAL_API_KEY:
+            protocol.status = "rejected"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="MISTRAL_API_KEY is not configured. Please set it in your environment variables."
+            )
+        
+        # Start workflow and add error callback
+        future = run_protocol_workflow(db, protocol.id, request.intent, request.type)
+        
+        # Add callback to handle exceptions in background thread
+        def handle_workflow_error(f):
+            try:
+                f.result()  # This will raise any exception that occurred
+            except Exception as e:
+                import traceback
+                error_msg = f"Workflow execution error: {str(e)}\n{traceback.format_exc()}"
+                print(error_msg)
+                # Update protocol status in a new session
+                from app.database import SessionLocal
+                error_db = SessionLocal()
+                try:
+                    error_protocol = error_db.query(Protocol).filter(Protocol.id == protocol.id).first()
+                    if error_protocol:
+                        error_protocol.status = "rejected"
+                        error_db.commit()
+                finally:
+                    error_db.close()
+        
+        # Schedule error handling (non-blocking)
+        import threading
+        def check_future():
+            import time
+            time.sleep(0.1)  # Small delay to let workflow start
+            if future.done():
+                handle_workflow_error(future)
+        
+        threading.Thread(target=check_future, daemon=True).start()
+        
     except Exception as e:
         # If workflow creation fails, mark protocol as failed
         protocol.status = "rejected"
@@ -170,7 +214,13 @@ async def create_protocol(
             detail=f"Failed to start protocol generation: {str(e)}"
         )
     
-    return ProtocolResponse.from_orm(protocol)
+    try:
+        return ProtocolResponse.from_orm(protocol)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to serialize protocol response: {str(e)}"
+        )
 
 
 @router.post("/protocols/{protocol_id}/approve", response_model=ProtocolResponse)

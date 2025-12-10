@@ -132,7 +132,6 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
 def drafter_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Drafter agent: creates and revises protocol drafts using Mistral."""
     protocol_id = state["protocol_id"]
-    llm = get_mistral_llm()
     
     save_agent_thought(
         db, protocol_id, "drafter", "Drafter",
@@ -186,11 +185,20 @@ The protocol should be:
 Format as clear, actionable steps that a clinician can use with a patient."""
     
     try:
+        llm = get_mistral_llm()
         response = llm.invoke(prompt)
         draft_content = response.content if hasattr(response, 'content') else str(response)
         
         state["current_draft"] = draft_content
         state["iteration_count"] += 1
+        
+        # Update protocol in database
+        from app.models.protocol import Protocol
+        protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+        if protocol:
+            protocol.current_draft = draft_content
+            protocol.iteration_count = state["iteration_count"]
+            protocol.status = "reviewing"
         
         # Create version record
         version = ProtocolVersion(
@@ -225,7 +233,6 @@ Format as clear, actionable steps that a clinician can use with a patient."""
 def safety_guardian_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Safety Guardian agent: checks for safety issues and medical advice."""
     protocol_id = state["protocol_id"]
-    llm = get_mistral_llm()
     
     save_agent_thought(
         db, protocol_id, "safety_guardian", "Safety Guardian",
@@ -254,6 +261,7 @@ Provide your assessment in JSON format:
 Be thorough but fair. Only flag genuine safety concerns."""
     
     try:
+        llm = get_mistral_llm()
         response = llm.invoke(prompt)
         response_text = response.content if hasattr(response, 'content') else str(response)
         
@@ -283,6 +291,13 @@ Be thorough but fair. Only flag genuine safety concerns."""
             "flags": safety_data.get("flags", []),
             "notes": safety_data.get("notes", "Safety review completed")
         }
+        
+        # Update protocol in database
+        from app.models.protocol import Protocol
+        protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+        if protocol:
+            protocol.safety_score = state["safety_score"]
+            db.commit()
         
         save_agent_thought(
             db, protocol_id, "safety_guardian", "Safety Guardian",
@@ -317,7 +332,6 @@ Be thorough but fair. Only flag genuine safety concerns."""
 def clinical_critic_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Clinical Critic agent: evaluates empathy, tone, and structure."""
     protocol_id = state["protocol_id"]
-    llm = get_mistral_llm()
     
     save_agent_thought(
         db, protocol_id, "clinical_critic", "Clinical Critic",
@@ -344,6 +358,7 @@ Provide your assessment in JSON format:
 }}"""
     
     try:
+        llm = get_mistral_llm()
         response = llm.invoke(prompt)
         response_text = response.content if hasattr(response, 'content') else str(response)
         
@@ -371,6 +386,13 @@ Provide your assessment in JSON format:
             "tone": empathy_data.get("tone", "neutral"),
             "suggestions": empathy_data.get("suggestions", [])
         }
+        
+        # Update protocol in database
+        from app.models.protocol import Protocol
+        protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+        if protocol:
+            protocol.empathy_metrics = state["empathy_metrics"]
+            db.commit()
         
         save_agent_thought(
             db, protocol_id, "clinical_critic", "Clinical Critic",
@@ -405,6 +427,13 @@ Provide your assessment in JSON format:
 def halt_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Halt node: pauses workflow for human approval."""
     protocol_id = state["protocol_id"]
+    
+    # Update protocol in database
+    from app.models.protocol import Protocol
+    protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+    if protocol:
+        protocol.status = "awaiting_approval"
+        db.commit()
     
     save_agent_thought(
         db, protocol_id, "supervisor", "Supervisor",

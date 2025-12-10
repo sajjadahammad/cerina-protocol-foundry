@@ -4,37 +4,35 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.protocol import User
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
 
 
-def _truncate_password(password: str) -> str:
+def _truncate_password_bytes(password: str) -> bytes:
     """Truncate password to 72 bytes (bcrypt limit) while preserving UTF-8 encoding."""
     password_bytes = password.encode('utf-8')
-    truncated_bytes = password_bytes[:72]
-    # Decode back to string, ignoring any incomplete UTF-8 sequences at the end
-    return truncated_bytes.decode('utf-8', errors='ignore')
+    return password_bytes[:72]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    truncated = _truncate_password(plain_password)
-    return pwd_context.verify(truncated, hashed_password)
+    password_bytes = _truncate_password_bytes(plain_password)
+    hashed_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
-    truncated = _truncate_password(password)
-    return pwd_context.hash(truncated)
+    password_bytes = _truncate_password_bytes(password)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
