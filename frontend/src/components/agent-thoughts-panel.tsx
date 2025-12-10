@@ -4,59 +4,111 @@ import { AnimatePresence, motion } from "framer-motion"
 import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
 import { Loader2, Brain } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState, useMemo } from "react"
+import type { AgentThought } from "@/lib/protocols"
 
-export function AgentThoughtsPanel() {
-  const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+// Fallback processing function (runs on main thread if worker unavailable)
+function processThoughtsSync(
+  historicalThoughts: AgentThought[],
+  streamingThoughts: AgentThought[]
+): AgentThought[] {
+  const thoughtMap = new Map<string, AgentThought>()
 
-  // Combine historical and streaming thoughts, deduplicating by ID
-  const historicalThoughts = activeProtocol?.agentThoughts || []
-  const thoughtMap = new Map<string, typeof historicalThoughts[0]>()
-  
-  // Add historical thoughts first
   historicalThoughts.forEach((thought) => {
     if (thought.id) {
       thoughtMap.set(thought.id, thought)
     }
   })
-  
-  // Add streaming thoughts (will overwrite historical if same ID, keeping latest)
+
   streamingThoughts.forEach((thought) => {
     if (thought.id) {
       thoughtMap.set(thought.id, thought)
     }
   })
-  
-  // Filter to show only relevant thoughts:
-  // - Remove duplicate feedback messages with same content
-  // - Keep only the most recent thought per agent per type
+
   const allThoughts = Array.from(thoughtMap.values())
   const filteredThoughts = allThoughts.filter((thought, index, arr) => {
-    // Keep all action and thought types
     if (thought.type === "action" || thought.type === "thought") {
       return true
     }
-    // For feedback types, only keep if it's different from previous feedback from same agent
     if (thought.type === "feedback") {
       const previousFeedback = arr
         .slice(0, index)
         .reverse()
         .find((t) => t.agentRole === thought.agentRole && t.type === "feedback")
       if (previousFeedback && previousFeedback.content === thought.content) {
-        return false // Duplicate feedback, skip it
+        return false
       }
       return true
     }
     return true
   })
-  
-  // Sort by timestamp to maintain chronological order
-  const sortedThoughts = filteredThoughts.sort((a, b) => {
+
+  return filteredThoughts.sort((a, b) => {
     const timeA = new Date(a.timestamp).getTime()
     const timeB = new Date(b.timestamp).getTime()
     return timeA - timeB
   })
+}
+
+export function AgentThoughtsPanel() {
+  const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const workerRef = useRef<Worker | null>(null)
+  const [processedThoughts, setProcessedThoughts] = useState<AgentThought[]>([])
+  const [useWorker, setUseWorker] = useState(true)
+
+  const historicalThoughts = activeProtocol?.agentThoughts || []
+
+  // Initialize web worker
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    try {
+      const worker = new Worker(
+        new URL("../workers/thought-processor.worker.ts", import.meta.url),
+        { type: "module" }
+      )
+
+      worker.onmessage = (e) => {
+        setProcessedThoughts(e.data.sortedThoughts)
+      }
+
+      worker.onerror = (error) => {
+        console.warn("Web worker error, falling back to main thread processing:", error)
+        setUseWorker(false)
+        worker.terminate()
+      }
+
+      workerRef.current = worker
+
+      return () => {
+        worker.terminate()
+        workerRef.current = null
+      }
+    } catch (error) {
+      console.warn("Failed to initialize web worker, using main thread:", error)
+      setUseWorker(false)
+    }
+  }, [])
+
+  // Process thoughts - use worker if available, otherwise use memoized sync processing
+  const sortedThoughts = useMemo(() => {
+    if (!useWorker || !workerRef.current) {
+      return processThoughtsSync(historicalThoughts, streamingThoughts)
+    }
+    return processedThoughts
+  }, [historicalThoughts, streamingThoughts, useWorker, processedThoughts])
+
+  // Send data to worker when it changes
+  useEffect(() => {
+    if (useWorker && workerRef.current) {
+      workerRef.current.postMessage({
+        historicalThoughts,
+        streamingThoughts,
+      })
+    }
+  }, [historicalThoughts, streamingThoughts, useWorker])
 
   // Auto-scroll to bottom when new thoughts arrive
   useEffect(() => {
@@ -73,7 +125,7 @@ export function AgentThoughtsPanel() {
         })
       }
     }
-  }, [sortedThoughts.length, sortedThoughts])
+  }, [sortedThoughts.length])
 
   if (sortedThoughts.length === 0 && !isStreaming) {
     return (

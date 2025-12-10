@@ -139,7 +139,9 @@ User Request → FastAPI Backend → LangGraph Workflow → Multi-Agent System �
 - `GET /api/v1/auth/me` - Get current user info
 
 #### **Protocol Routes**:
-- `GET /api/v1/protocols` - List all user's protocols
+- `GET /api/v1/protocols?skip=0&limit=20` - List user's protocols with pagination
+  - Returns: `{items: Protocol[], total: number, skip: number, limit: number, hasMore: boolean}`
+  - Supports pagination with `skip` (offset) and `limit` (page size, max 100)
 - `GET /api/v1/protocols/{id}` - Get single protocol
 - `POST /api/v1/protocols` - Create protocol (starts workflow)
 - `POST /api/v1/protocols/{id}/approve` - Approve and finalize
@@ -380,7 +382,8 @@ supervisor (entry)
 **Purpose**: Type-safe API service functions
 
 **Functions**:
-- `list()`: Get all protocols
+- `list(skip, limit)`: Get paginated protocols (default: skip=0, limit=20)
+  - Returns `PaginatedResponse<Protocol>` with `items`, `total`, `skip`, `limit`, `hasMore`
 - `get(id)`: Get single protocol
 - `create(request)`: Create protocol
 - `approve(request)`: Approve protocol
@@ -389,7 +392,9 @@ supervisor (entry)
 - `resume(id)`: Resume workflow
 - `streamUrl(id, token)`: Generate SSE stream URL
 
-**Types**: Full TypeScript interfaces for all data structures
+**Types**: 
+- Full TypeScript interfaces for all data structures
+- `PaginatedResponse<T>` interface for paginated API responses
 
 ---
 
@@ -398,7 +403,9 @@ supervisor (entry)
 **Purpose**: React Query hooks for data fetching and mutations
 
 **Hooks**:
-- **useProtocols()**: List all protocols (query)
+- **useProtocols(skip, limit)**: List protocols with pagination (query)
+  - Parameters: `skip` (default: 0), `limit` (default: 20)
+  - Returns paginated response with `items` and `total`
 - **useProtocol(id)**: Get single protocol (query)
 - **useCreateProtocol()**: Create protocol (mutation)
 - **useApproveProtocol()**: Approve protocol (mutation)
@@ -416,13 +423,19 @@ supervisor (entry)
 **Purpose**: Manages SSE connection for real-time updates
 
 **Process**:
-1. Creates `EventSource` connection
+1. Creates `EventSource` connection (only when protocol status is `drafting` or `reviewing`)
 2. Listens for `message` events
 3. Parses JSON data
 4. Updates React Query cache and Zustand store
 5. Handles `protocol_update` events (updates draft, status, metrics)
 6. Handles `agent_thought` events (adds to streaming thoughts)
 7. Closes on `complete` event or error
+8. Automatically disconnects when protocol reaches terminal state (`awaiting_approval`, `approved`, `rejected`)
+
+**Smart Connection Management**: 
+- Only connects when protocol is actively being processed
+- Automatically disconnects when workflow completes
+- Prevents unnecessary connections for completed protocols
 
 **State Management**: Updates both React Query cache and Zustand store
 
@@ -482,17 +495,132 @@ supervisor (entry)
 
 ---
 
-### 7. Protocol Actions (`frontend/src/components/protocol-actions.tsx`)
+### 7. Register Form (`frontend/src/components/register-form.tsx`)
+
+**Purpose**: User registration with enhanced validation
+
+**Features**:
+- **Form Validation**: Zod schema validation with react-hook-form
+- **Password Requirements**:
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one number
+  - Maximum 128 characters
+- **Password Visibility Toggle**: Show/hide password button
+- **Password Confirmation**: Validates password match
+- **Real-time Validation**: Validates on blur with helpful error messages
+- **Loading States**: Shows spinner during registration
+- **Error Handling**: Displays registration errors
+
+**Validation Schema**: Uses Zod for type-safe validation
+
+---
+
+### 8. Protocol History Table (`frontend/src/components/protocol-history-table.tsx`)
+
+**Purpose**: Displays paginated, searchable, filterable protocol list
+
+**Features**:
+- **Pagination**: 
+  - Client-side pagination with configurable page size (default: 10)
+  - Previous/Next navigation
+  - Shows current page and total pages
+  - Displays "Showing X to Y of Z protocols"
+- **Search**:
+  - Debounced search input (300ms delay)
+  - Searches in `title` and `intent` fields
+  - Case-insensitive matching
+  - Resets to first page on search change
+- **Status Filtering**:
+  - Filter by status: All, Approved, Awaiting Approval, Drafting, Reviewing, Rejected
+  - Dropdown selector
+- **Optimized Filtering**:
+  - Uses `useMemo` for efficient client-side filtering
+  - Early returns for performance
+  - Combines search and status filters
+- **Responsive Design**:
+  - Hides columns on smaller screens (md:table-cell, lg:table-cell)
+  - Shows essential columns on mobile
+- **Table Columns**:
+  - Title (with intent preview)
+  - Status badge
+  - Safety score (hidden on mobile)
+  - Empathy score (hidden on mobile)
+  - Iterations (hidden on mobile/tablet)
+  - Created date (hidden on mobile/tablet)
+  - Link to protocol page
+
+**Performance**: Efficient filtering with memoization and early returns
+
+---
+
+### 9. Protocol Actions (`frontend/src/components/protocol-actions.tsx`)
 
 **Purpose**: Action buttons for protocol management
 
 **Actions**:
 - **Approve**: Sends edited content, finalizes protocol
-- **Reject**: Rejects with reason
+- **Reject**: Rejects with reason (opens dialog for reason input)
 - **Halt**: Manually stops workflow
 - **Resume**: Resumes halted workflow
 
 **State-Dependent**: Buttons shown based on protocol status
+
+---
+
+### 10. Protocol Page (`frontend/src/app/dashboard/protocol/[id]/page.tsx`)
+
+**Purpose**: Main page for viewing and managing individual protocols
+
+**Features**:
+- **Smart SSE Connection**: 
+  - Only connects when protocol status is `drafting` or `reviewing`
+  - Automatically disconnects when workflow completes
+  - Refetches protocol once when status reaches `awaiting_approval`
+- **Layout**:
+  - Header with back button and approval buttons
+  - Split view: Editor panel (left) and Agent thoughts panel (right)
+  - Responsive: Stacks vertically on mobile
+- **Approval Flow**:
+  - Shows Approve/Reject buttons when status is `awaiting_approval`
+  - Approve button sends edited content (if modified)
+  - Reject button opens dialog for reason input
+  - Animated button appearance with Framer Motion
+- **State Management**:
+  - Syncs active protocol with Zustand store
+  - Manages SSE connection lifecycle
+  - Handles protocol updates from SSE stream
+
+**User Experience**: Clean, focused interface for protocol review and approval
+
+---
+
+### 11. Dashboard Layout (`frontend/src/app/dashboard/layout.tsx`)
+
+**Purpose**: Protected layout wrapper for all dashboard pages
+
+**Features**:
+- **Protected Route**: Wraps all dashboard pages with authentication check
+- **Layout Structure**: 
+  - Sidebar navigation (always visible)
+  - Main content area (flexible, scrollable)
+  - Full-height layout with overflow handling
+- **Authentication**: Redirects to login if not authenticated
+
+---
+
+### 12. Dashboard Page (`frontend/src/app/dashboard/page.tsx`)
+
+**Purpose**: Main dashboard landing page
+
+**Components**:
+- **Stats Cards**: Displays protocol statistics (total, by status, etc.)
+- **Recent Protocols**: Shows recently created/updated protocols
+- **New Protocol Button**: Quick access to create new protocol
+- **Header**: Dashboard title and description
+
+**Layout**: Responsive grid layout with stats and recent protocols
 
 ---
 
@@ -621,10 +749,50 @@ User (approve) → API Route → Database (update) → Resume Workflow → Final
 ## Extensibility
 
 1. **LLM Provider Switching**: Easy to add new providers via `get_llm()`
+   - Currently supports Hugging Face (Qwen 2.5 Pro) and Mistral
+   - Switch via `LLM_PROVIDER` environment variable
+   - See `backend/LLM_SWITCHING.md` for detailed switching guide
 2. **New Agents**: Add node function, register in graph
 3. **New Protocol Types**: Add to frontend form, handled by drafter
 4. **Custom Metrics**: Add to state, create new agent node
 5. **MCP Integration**: Separate server for external tool access
+
+---
+
+## Recent Enhancements
+
+### Pagination Support
+- **Backend**: Protocols list endpoint now supports `skip` and `limit` query parameters
+- **Frontend**: `useProtocols()` hook accepts pagination parameters
+- **UI**: Protocol history table implements client-side pagination with server-side data fetching
+- **Response Format**: Returns `PaginatedResponse` with `items`, `total`, `skip`, `limit`, and `hasMore`
+
+### Enhanced Registration
+- **Password Validation**: Comprehensive validation with Zod schema
+  - Length requirements (8-128 characters)
+  - Character requirements (uppercase, lowercase, number)
+  - Real-time validation feedback
+- **Password Visibility Toggle**: Show/hide password functionality
+- **Password Confirmation**: Validates password match
+- **User Experience**: Clear error messages and loading states
+
+### Protocol History Improvements
+- **Search Functionality**: Debounced search across title and intent
+- **Status Filtering**: Filter protocols by status
+- **Client-Side Filtering**: Efficient filtering with `useMemo` optimization
+- **Responsive Design**: Adaptive column visibility for different screen sizes
+- **Pagination UI**: Clear pagination controls with page information
+
+### SSE Connection Optimization
+- **Smart Connection Management**: Only connects when protocol is actively processing
+- **Automatic Disconnection**: Closes connection when workflow completes
+- **Resource Efficiency**: Prevents unnecessary connections for completed protocols
+- **Status-Based Logic**: Connection managed based on protocol status
+
+### LLM Provider Documentation
+- **Switching Guide**: Comprehensive guide in `backend/LLM_SWITCHING.md`
+- **Provider Comparison**: Performance and feature comparison
+- **Configuration Instructions**: Step-by-step switching instructions
 
 ---
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useProtocols } from "@/hooks/use-protocols"
 import { Badge } from "@/components/ui/badge"
@@ -22,20 +22,46 @@ const statusVariant: Record<ProtocolStatus, "default" | "secondary" | "outline" 
 export function ProtocolHistoryTable() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
 
   const { data: paginatedData, isLoading } = useProtocols(page * pageSize, pageSize)
 
-  // Client-side filtering (since backend doesn't support search/filter yet)
+  // Debounce search input to avoid excessive filtering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput)
+      // Reset to first page when search changes
+      setPage(0)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Optimized client-side filtering with early returns
   const filteredProtocols = useMemo(() => {
     if (!paginatedData?.items) return []
+    
+    const searchLower = search.toLowerCase()
+    const hasSearch = searchLower.length > 0
+    
     return paginatedData.items.filter((protocol) => {
-      const matchesSearch =
-        protocol.title.toLowerCase().includes(search.toLowerCase()) ||
-        protocol.intent.toLowerCase().includes(search.toLowerCase())
-      const matchesStatus = statusFilter === "all" || protocol.status === statusFilter
-      return matchesSearch && matchesStatus
+      // Early return for status filter
+      if (statusFilter !== "all" && protocol.status !== statusFilter) {
+        return false
+      }
+      
+      // Early return if no search term
+      if (!hasSearch) {
+        return true
+      }
+      
+      // Search in title and intent
+      return (
+        protocol.title.toLowerCase().includes(searchLower) ||
+        protocol.intent.toLowerCase().includes(searchLower)
+      )
     })
   }, [paginatedData?.items, search, statusFilter])
 
@@ -57,8 +83,8 @@ export function ProtocolHistoryTable() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search protocols..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
           />
         </div>
