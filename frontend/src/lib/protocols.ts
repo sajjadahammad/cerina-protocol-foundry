@@ -48,6 +48,14 @@ export interface Protocol {
   approvedBy?: string
 }
 
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  skip: number
+  limit: number
+  hasMore: boolean
+}
+
 export interface CreateProtocolRequest {
   intent: string
   type: string
@@ -59,8 +67,10 @@ export interface ApproveProtocolRequest {
 }
 
 export const protocolsApi = {
-  list: async (): Promise<Protocol[]> => {
-    const { data } = await api.get<Protocol[]>("/protocols")
+  list: async (skip: number = 0, limit: number = 20): Promise<PaginatedResponse<Protocol>> => {
+    const { data } = await api.get<PaginatedResponse<Protocol>>("/protocols", {
+      params: { skip, limit },
+    })
     return data
   },
 

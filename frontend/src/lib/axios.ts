@@ -1,4 +1,5 @@
 import axios from "axios"
+import { toast } from "sonner"
 
 // API base URL - matches backend API_V1_PREFIX
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -34,10 +35,18 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized - redirect to login
+      // Handle unauthorized - show message and redirect to login
       if (typeof window !== "undefined") {
-        localStorage.removeItem("auth_token")
-        window.location.href = "/login"
+        toast.error("Session Expired", {
+          description: "Your session has expired. Please log in again.",
+          duration: 3000,
+        })
+        
+        // Wait a bit for the toast to be visible, then redirect
+        setTimeout(() => {
+          localStorage.removeItem("auth_token")
+          window.location.href = "/login"
+        }, 1500)
       }
     }
     return Promise.reject(error)

@@ -16,7 +16,8 @@ const statusVariant: Record<string, "default" | "secondary" | "outline" | "destr
 }
 
 export function RecentProtocols() {
-  const { data: protocols, isLoading } = useProtocols()
+  const { data: paginatedData, isLoading } = useProtocols(0, 5)
+  const protocols = paginatedData?.items || []
 
   const recentProtocols = protocols?.slice(0, 5) || []
 

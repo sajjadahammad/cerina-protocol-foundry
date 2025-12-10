@@ -1,7 +1,7 @@
 """API routes for authentication and protocols."""
 from datetime import datetime, timedelta
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
@@ -103,14 +103,34 @@ async def get_me(
 
 
 # Protocol Routes
-@router.get("/protocols", response_model=List[ProtocolResponse])
+@router.get("/protocols")
 async def list_protocols(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all protocols for the current user."""
-    protocols = db.query(Protocol).filter(Protocol.user_id == current_user.id).all()
-    return [ProtocolResponse.from_orm(p) for p in protocols]
+    """List protocols for the current user with pagination."""
+    # Get total count
+    total = db.query(Protocol).filter(Protocol.user_id == current_user.id).count()
+    
+    # Get paginated protocols
+    protocols = (
+        db.query(Protocol)
+        .filter(Protocol.user_id == current_user.id)
+        .order_by(Protocol.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    
+    return {
+        "items": [ProtocolResponse.from_orm(p) for p in protocols],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "hasMore": skip + limit < total
+    }
 
 
 @router.get("/protocols/{protocol_id}", response_model=ProtocolResponse)

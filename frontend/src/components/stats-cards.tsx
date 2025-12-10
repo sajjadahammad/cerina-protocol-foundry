@@ -5,13 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileText, CheckCircle, Clock, AlertTriangle } from "lucide-react"
 
 export function StatsCards() {
-  const { data: protocols } = useProtocols()
+  const { data: paginatedData } = useProtocols(0, 100) // Get more for stats
+  const protocols = paginatedData?.items || []
 
   const stats = {
-    total: protocols?.length || 0,
-    approved: protocols?.filter((p) => p.status === "approved").length || 0,
-    pending: protocols?.filter((p) => p.status === "awaiting_approval").length || 0,
-    inProgress: protocols?.filter((p) => p.status === "drafting" || p.status === "reviewing").length || 0,
+    total: paginatedData?.total || 0, // Use total from pagination response
+    approved: protocols.filter((p) => p.status === "approved").length,
+    pending: protocols.filter((p) => p.status === "awaiting_approval").length,
+    inProgress: protocols.filter((p) => p.status === "drafting" || p.status === "reviewing").length,
   }
 
   const cards = [

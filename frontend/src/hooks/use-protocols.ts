@@ -10,10 +10,10 @@ import {
 import { useProtocolStore } from "../../stores/protocol-store"
 import { useCallback, useEffect, useRef } from "react"
 
-export function useProtocols() {
+export function useProtocols(skip: number = 0, limit: number = 20) {
   return useQuery({
-    queryKey: ["protocols"],
-    queryFn: () => protocolsApi.list(),
+    queryKey: ["protocols", skip, limit],
+    queryFn: () => protocolsApi.list(skip, limit),
   })
 }
 

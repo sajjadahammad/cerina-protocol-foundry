@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import Link from "next/link"
 import { useProtocols } from "@/hooks/use-protocols"
 import { Badge } from "@/components/ui/badge"
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Search, ExternalLink } from "lucide-react"
+import { Loader2, Search, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react"
 import type { ProtocolStatus } from "@/lib/protocols"
 
 const statusVariant: Record<ProtocolStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -20,17 +20,26 @@ const statusVariant: Record<ProtocolStatus, "default" | "secondary" | "outline" 
 }
 
 export function ProtocolHistoryTable() {
-  const { data: protocols, isLoading } = useProtocols()
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
 
-  const filteredProtocols = protocols?.filter((protocol) => {
-    const matchesSearch =
-      protocol.title.toLowerCase().includes(search.toLowerCase()) ||
-      protocol.intent.toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = statusFilter === "all" || protocol.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  const { data: paginatedData, isLoading } = useProtocols(page * pageSize, pageSize)
+
+  // Client-side filtering (since backend doesn't support search/filter yet)
+  const filteredProtocols = useMemo(() => {
+    if (!paginatedData?.items) return []
+    return paginatedData.items.filter((protocol) => {
+      const matchesSearch =
+        protocol.title.toLowerCase().includes(search.toLowerCase()) ||
+        protocol.intent.toLowerCase().includes(search.toLowerCase())
+      const matchesStatus = statusFilter === "all" || protocol.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [paginatedData?.items, search, statusFilter])
+
+  const totalPages = paginatedData ? Math.ceil(paginatedData.total / pageSize) : 0
 
   if (isLoading) {
     return (
@@ -130,6 +139,38 @@ export function ProtocolHistoryTable() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      {paginatedData && totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            Showing {page * pageSize + 1} to {Math.min((page + 1) * pageSize, paginatedData.total)} of {paginatedData.total} protocols
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <div className="text-sm text-muted-foreground">
+              Page {page + 1} of {totalPages}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

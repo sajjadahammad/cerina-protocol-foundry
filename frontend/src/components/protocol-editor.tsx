@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { pdf } from "@react-pdf/renderer"
 import { useProtocolStore } from "@/stores/protocol-store"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Shield, Heart, IterationCw, Eye, Edit, AlertCircle, Check, X } from "lucide-react"
+import { Shield, Heart, IterationCw, Eye, Edit, AlertCircle, Check, X, Copy, Download, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MarkdownViewer } from "@/components/markdown-viewer"
+import { toast } from "sonner"
+import { ProtocolPDFDocument } from "./protocol-pdf"
 
 export function ProtocolEditor() {
   const { activeProtocol, editedContent, setEditedContent, isStreaming } = useProtocolStore()
@@ -35,6 +38,65 @@ export function ProtocolEditor() {
   const isApproved = activeProtocol.status === "approved"
   const isRejected = activeProtocol.status === "rejected"
   const showGenerating = isStreaming && (activeProtocol.status === "reviewing" || activeProtocol.status === "drafting")
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(displayContent)
+      toast.success("Protocol copied to clipboard")
+    } catch (error) {
+      toast.error("Failed to copy protocol")
+    }
+  }
+
+  const handleDownload = () => {
+    try {
+      const blob = new Blob([displayContent], { type: "text/markdown" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${activeProtocol.title.replace(/\s+/g, "_")}_protocol.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success("Protocol downloaded successfully")
+    } catch (error) {
+      toast.error("Failed to download protocol")
+    }
+  }
+
+  const handleDownloadPDF = async () => {
+    try {
+      toast.loading("Generating PDF...", { id: "pdf-generate" })
+      
+      const pdfDoc = (
+        <ProtocolPDFDocument
+          title={activeProtocol.title}
+          intent={activeProtocol.intent}
+          content={displayContent}
+          safetyScore={activeProtocol.safetyScore?.score ?? 0}
+          empathyScore={activeProtocol.empathyMetrics?.score ?? 0}
+          iterationCount={activeProtocol.iterationCount}
+          createdAt={activeProtocol.createdAt}
+        />
+      )
+
+      const blob = await pdf(pdfDoc).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${activeProtocol.title.replace(/\s+/g, "_")}_protocol.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      toast.success("PDF downloaded successfully", { id: "pdf-generate" })
+    } catch (error) {
+      toast.error("Failed to generate PDF", { id: "pdf-generate" })
+      console.error("PDF generation error:", error)
+    }
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -103,6 +165,40 @@ export function ProtocolEditor() {
               <Edit className="mr-1.5 h-3.5 w-3.5" />
               Edit
             </Button>
+            {displayContent && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="h-7 text-xs"
+                  title="Copy protocol to clipboard"
+                >
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                  Copy
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDownload}
+                  className="h-7 text-xs"
+                  title="Download protocol as markdown file"
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Markdown
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDownloadPDF}
+                  className="h-7 text-xs"
+                  title="Download protocol as PDF"
+                >
+                  <FileText className="mr-1.5 h-3.5 w-3.5" />
+                  PDF
+                </Button>
+              </>
+            )}
           </div>
           <AnimatePresence mode="wait">
             {showGenerating && (
