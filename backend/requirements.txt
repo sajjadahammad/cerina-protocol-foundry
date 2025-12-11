@@ -12,6 +12,7 @@ alembic
 python-jose[cryptography]
 passlib[bcrypt]
 cryptography
+email-validator
 
 # Configuration
 python-dotenv
@@ -29,9 +30,9 @@ langchain-huggingface
 # Hugging Face (Qwen 2.5 Pro)
 huggingface-hub
 
-# Mistral AI (commented out - can switch back by setting LLM_PROVIDER=mistral)
-# langchain-mistralai
-# mistralai
+# Mistral AI
+langchain-mistralai
+mistralai
 
 # MCP (Model Context Protocol)
 mcp
