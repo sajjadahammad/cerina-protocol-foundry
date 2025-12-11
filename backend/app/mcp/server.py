@@ -1,7 +1,18 @@
 """MCP (Model Context Protocol) server implementation."""
+import asyncio
+import json
 import os
 import sys
 from pathlib import Path
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
+from app.config import settings, Settings
+from app.database import SessionLocal, init_db
+from app.models.protocol import Protocol, User as UserModel, AgentThought
+from app.api.auth import get_password_hash
+from app.agents.graph import run_protocol_workflow
+from app.utils.llm import get_llm
 
 # Ensure we can find the .env file in the backend directory
 # When run from Claude Desktop, the working directory might not be set correctly
@@ -21,31 +32,18 @@ if env_file.exists():
                     key, value = line.split('=', 1)
                     os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
-# Import settings AFTER ensuring environment variables are loaded
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-from app.config import settings
-from app.database import SessionLocal, init_db
-from app.models.protocol import Protocol, User as UserModel, AgentThought
-from app.api.auth import get_password_hash
-from app.agents.graph import run_protocol_workflow
-import asyncio
-import json
-
 # Verify API key is configured and reload settings if needed
 # Pydantic-settings reads env vars at instantiation, so we need to check os.environ directly
 hf_key_from_env = os.getenv("HUGGINGFACE_API_KEY")
 mistral_key_from_env = os.getenv("MISTRAL_API_KEY")
 if (hf_key_from_env and not settings.HUGGINGFACE_API_KEY) or (mistral_key_from_env and not settings.MISTRAL_API_KEY):
     # Environment variable is set but settings didn't pick it up - reload settings
-    from app.config import Settings
     settings = Settings()
     sys.stderr.write("Reloaded settings to pick up environment variables\n")
 
 # Verify LLM can be initialized using the llm.py method
+# Note: LLM configuration is validated when get_llm() is called
 try:
-    from app.utils.llm import get_llm
     llm = get_llm()
     provider = settings.LLM_PROVIDER.lower()
     if provider == "huggingface":

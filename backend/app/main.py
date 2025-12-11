@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import traceback
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,6 +9,7 @@ from app.config import settings
 from app.database import init_db, SessionLocal
 from app.api.routes import router as api_router
 from app.agents.graph import resume_interrupted_workflows
+from app.utils.llm import get_llm
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -57,7 +59,6 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle all other unhandled exceptions."""
-    import traceback
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -73,36 +74,31 @@ async def startup_event():
     init_db()
     
     # Check LLM configuration
-    from app.config import settings
-    from app.utils.llm import get_llm
-    
+    # Note: LLM configuration is validated when get_llm() is called
     provider = settings.LLM_PROVIDER.lower()
     print(f"LLM Provider: {provider}")
     
-    if provider == "huggingface":
-        if settings.HUGGINGFACE_API_KEY:
-            print(f"✓ HUGGINGFACE_API_KEY is configured")
+    try:
+        llm = get_llm()
+        if provider == "huggingface":
+            print(f"✓ LLM initialized successfully")
+            print(f"  Provider: {provider}")
             print(f"  Model: {settings.HUGGINGFACE_MODEL}")
-            try:
-                llm = get_llm()
-                print("✓ LLM initialized successfully")
-            except Exception as e:
-                print(f"✗ LLM initialization failed: {str(e)}")
+        elif provider == "mistral":
+            print(f"✓ LLM initialized successfully")
+            print(f"  Provider: {provider}")
+            print(f"  Model: {settings.MISTRAL_MODEL}")
         else:
-            print("✗ HUGGINGFACE_API_KEY is not configured")
-            print("  Set HUGGINGFACE_API_KEY in your environment variables or .env file")
-    # elif provider == "mistral":
-    #     if settings.MISTRAL_API_KEY:
-    #         print(f"✓ MISTRAL_API_KEY is configured")
-    #         print(f"  Model: {settings.MISTRAL_MODEL}")
-    #         try:
-    #             llm = get_llm()
-    #             print("✓ LLM initialized successfully")
-    #         except Exception as e:
-    #             print(f"✗ LLM initialization failed: {str(e)}")
-    #     else:
-    #         print("✗ MISTRAL_API_KEY is not configured")
-    #         print("  Set MISTRAL_API_KEY in your environment variables or .env file")
+            print(f"✓ LLM initialized successfully")
+            print(f"  Provider: {provider}")
+    except Exception as e:
+        print(f"✗ LLM initialization failed: {str(e)}")
+        if provider == "huggingface":
+            print(f"  HUGGINGFACE_API_KEY: {'SET' if settings.HUGGINGFACE_API_KEY else 'NOT SET'}")
+            print(f"  HUGGINGFACE_MODEL: {settings.HUGGINGFACE_MODEL}")
+        elif provider == "mistral":
+            print(f"  MISTRAL_API_KEY: {'SET' if settings.MISTRAL_API_KEY else 'NOT SET'}")
+            print(f"  MISTRAL_MODEL: {settings.MISTRAL_MODEL}")
     
     # Resume any workflows that were interrupted by server crash
     db = SessionLocal()
@@ -129,9 +125,6 @@ async def health():
 @app.get("/health/llm")
 async def health_llm():
     """Check if LLM is configured and can connect."""
-    from app.utils.llm import get_llm
-    from app.config import settings
-    
     provider = settings.LLM_PROVIDER.lower()
     
     result = {
@@ -142,21 +135,10 @@ async def health_llm():
         "error": None,
     }
     
-    # Check if API key is configured
-    if provider == "huggingface":
-        if not settings.HUGGINGFACE_API_KEY:
-            result["error"] = "HUGGINGFACE_API_KEY not configured in environment variables"
-            return result
-    # elif provider == "mistral":
-    #     if not settings.MISTRAL_API_KEY:
-    #         result["error"] = "MISTRAL_API_KEY not configured in environment variables"
-    #         return result
-    
-    result["configured"] = True
-    
-    # Try to initialize LLM
+    # Try to initialize LLM (get_llm() will validate configuration)
     try:
         llm = get_llm()
+        result["configured"] = True
         result["connected"] = True
         
         # Try a simple test call

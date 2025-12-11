@@ -1,7 +1,11 @@
 """LangGraph workflow definition for the multi-agent protocol generation system."""
+import sys
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
+from sqlalchemy.orm import Session
 from app.agents.state import ProtocolState
 from app.agents.nodes import (
     supervisor_node,
@@ -13,10 +17,8 @@ from app.agents.nodes import (
     save_agent_thought,
 )
 from app.agents.checkpointer import create_checkpointer
-from sqlalchemy.orm import Session
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import sys
+from app.database import SessionLocal
+from app.models.protocol import Protocol
 
 
 def route_next_agent(state: ProtocolState) -> Literal["drafter", "safety_guardian", "clinical_critic", "halt", "finalize", "finish"]:
@@ -72,8 +74,6 @@ def create_protocol_workflow(db: Session, protocol_id: str):
 
 def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_type: str):
     """Run the protocol generation workflow asynchronously."""
-    from app.models.protocol import Protocol
-    
     # Get protocol
     protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
     if not protocol:
@@ -89,7 +89,6 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
     # Run workflow in thread pool (since LangGraph can be blocking)
     def run_sync():
         # Create a new database session for this thread
-        from app.database import SessionLocal
         thread_db = SessionLocal()
         try:
             # Get fresh protocol instance in this thread's session
@@ -196,7 +195,6 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             sys.stderr.write(f"Workflow completed for protocol {protocol_id} after {event_count} events\n")
         except Exception as e:
             # Log error and update protocol status
-            import traceback
             error_msg = f"Workflow error: {str(e)}\n{traceback.format_exc()}"
             sys.stderr.write(error_msg + "\n")
             try:
@@ -223,8 +221,6 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
 
 def resume_interrupted_workflows(db: Session):
     """Resume any workflows that were interrupted (e.g., by server crash)."""
-    from app.models.protocol import Protocol
-    
     # Find protocols that are in progress but not completed
     interrupted_protocols = db.query(Protocol).filter(
         Protocol.status.in_(["drafting", "reviewing"])

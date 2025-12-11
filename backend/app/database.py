@@ -29,6 +29,8 @@ def get_db():
 
 def init_db():
     """Initialize database tables."""
+    # Import models here to avoid circular import
+    # Models import Base from this module, so we can't import them at module level
     from app.models.protocol import User, Protocol, ProtocolVersion, AgentThought
     Base.metadata.create_all(bind=engine)
 

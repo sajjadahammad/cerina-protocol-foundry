@@ -1,10 +1,14 @@
 """API routes for authentication and protocols."""
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.protocol import User, Protocol, ProtocolVersion, AgentThought
 from app.types import (
     LoginRequest,
@@ -22,6 +26,9 @@ from app.api.auth import (
     authenticate_user,
     create_access_token,
 )
+from app.agents.graph import create_protocol_workflow, run_protocol_workflow
+from app.agents.nodes import save_agent_thought, finalize_node
+from app.agents.state import ProtocolState
 from app.utils.protocol_helpers import get_protocol_or_404, verify_protocol_status
 from app.api.websocket import router as websocket_router
 from app.api.chat import router as chat_router
@@ -152,8 +159,6 @@ async def create_protocol(
     db: Session = Depends(get_db)
 ):
     """Create a new protocol and start agent workflow."""
-    from app.agents.graph import create_protocol_workflow
-    
     # Create protocol record
     now = datetime.utcnow()
     protocol = Protocol(
@@ -173,28 +178,8 @@ async def create_protocol(
     db.refresh(protocol)
     
     # Start the agent workflow asynchronously
+    # Note: LLM configuration is validated when get_llm() is called in agent nodes
     try:
-        from app.agents.graph import run_protocol_workflow
-        from app.config import settings
-        
-        # Check if LLM API key is configured
-        if settings.LLM_PROVIDER.lower() == "huggingface":
-            if not settings.HUGGINGFACE_API_KEY:
-                protocol.status = "rejected"
-                db.commit()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="HUGGINGFACE_API_KEY is not configured. Please set it in your environment variables."
-                )
-        # elif settings.LLM_PROVIDER.lower() == "mistral":
-        #     if not settings.MISTRAL_API_KEY:
-        #         protocol.status = "rejected"
-        #         db.commit()
-        #         raise HTTPException(
-        #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        #             detail="MISTRAL_API_KEY is not configured. Please set it in your environment variables."
-        #         )
-        
         # Start workflow and add error callback
         future = run_protocol_workflow(db, protocol.id, request.intent, request.type)
         
@@ -203,11 +188,9 @@ async def create_protocol(
             try:
                 f.result()  # This will raise any exception that occurred
             except Exception as e:
-                import traceback
                 error_msg = f"Workflow execution error: {str(e)}\n{traceback.format_exc()}"
                 print(error_msg)
                 # Update protocol status in a new session
-                from app.database import SessionLocal
                 error_db = SessionLocal()
                 try:
                     error_protocol = error_db.query(Protocol).filter(Protocol.id == protocol.id).first()
@@ -218,9 +201,7 @@ async def create_protocol(
                     error_db.close()
         
         # Schedule error handling (non-blocking)
-        import threading
         def check_future():
-            import time
             time.sleep(0.1)  # Small delay to let workflow start
             if future.done():
                 handle_workflow_error(future)
@@ -265,10 +246,6 @@ async def approve_protocol(
     protocol.approved_by = current_user.id
     
     # Resume workflow to finalize node
-    from app.agents.nodes import save_agent_thought, finalize_node
-    from app.agents.state import ProtocolState
-    from concurrent.futures import ThreadPoolExecutor
-    
     # Save approval thought
     save_agent_thought(
         db, protocol_id, "supervisor", "Supervisor",
@@ -300,7 +277,6 @@ async def approve_protocol(
     executor = ThreadPoolExecutor(max_workers=1)
     
     def finalize_sync():
-        from app.database import SessionLocal
         finalize_db = SessionLocal()
         try:
             finalize_protocol = finalize_db.query(Protocol).filter(Protocol.id == protocol_id).first()
@@ -362,7 +338,6 @@ async def resume_protocol(
     verify_protocol_status(protocol, "awaiting_approval", "Protocol is not halted")
     
     # Resume workflow by continuing from checkpoint
-    from app.agents.graph import create_protocol_workflow
     app = create_protocol_workflow(db, protocol_id)
     
     # Get current state from checkpoint
@@ -377,7 +352,6 @@ async def resume_protocol(
     db.commit()
     
     # Resume workflow in background
-    from app.agents.graph import run_protocol_workflow
     run_protocol_workflow(db, protocol_id, protocol.intent, protocol.protocol_type)
     
     return {"message": "Protocol resumed successfully"}
