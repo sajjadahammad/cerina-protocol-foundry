@@ -7,7 +7,7 @@ import {
   type ApproveProtocolRequest,
   type AgentThought,
 } from "@/lib/protocols"
-import { useProtocolStore } from "../../stores/protocol-store"
+import { useProtocolStore } from "@/stores/protocol-store"
 import { useCallback, useEffect, useRef } from "react"
 
 export function useProtocols(skip: number = 0, limit: number = 20) {

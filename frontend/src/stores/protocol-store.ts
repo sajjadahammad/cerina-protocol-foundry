@@ -59,3 +59,4 @@ export const useProtocolStore = create<ProtocolState>((set) => ({
       activeProtocol: state.activeProtocol ? { ...state.activeProtocol, status } : null,
     })),
 }))
+
