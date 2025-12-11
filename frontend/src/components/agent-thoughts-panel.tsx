@@ -4,68 +4,20 @@ import { AnimatePresence, motion } from "framer-motion"
 import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
 import { Loader2, Brain } from "lucide-react"
-import { useEffect, useRef, useState, useMemo } from "react"
+import { useEffect, useRef, useMemo } from "react"
 import type { AgentThought } from "@/types/protocols"
 import { processThoughts } from "@/utils/thought-processor"
 
 export function AgentThoughtsPanel() {
   const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const workerRef = useRef<Worker | null>(null)
-  const [processedThoughts, setProcessedThoughts] = useState<AgentThought[]>([])
-  const [useWorker, setUseWorker] = useState(true)
 
   const historicalThoughts = activeProtocol?.agentThoughts || []
 
-  // Initialize web worker
-  useEffect(() => {
-    if (typeof window === "undefined") return
-
-    try {
-      const worker = new Worker(
-        new URL("../workers/thought-processor.worker.ts", import.meta.url),
-        { type: "module" }
-      )
-
-      worker.onmessage = (e) => {
-        setProcessedThoughts(e.data.sortedThoughts)
-      }
-
-      worker.onerror = (error) => {
-        console.warn("Web worker error, falling back to main thread processing:", error)
-        setUseWorker(false)
-        worker.terminate()
-      }
-
-      workerRef.current = worker
-
-      return () => {
-        worker.terminate()
-        workerRef.current = null
-      }
-    } catch (error) {
-      console.warn("Failed to initialize web worker, using main thread:", error)
-      setUseWorker(false)
-    }
-  }, [])
-
-  // Process thoughts - use worker if available, otherwise use memoized sync processing
+  // Process thoughts directly without web worker
   const sortedThoughts = useMemo(() => {
-    if (!useWorker || !workerRef.current) {
-      return processThoughts(historicalThoughts, streamingThoughts)
-    }
-    return processedThoughts
-  }, [historicalThoughts, streamingThoughts, useWorker, processedThoughts])
-
-  // Send data to worker when it changes
-  useEffect(() => {
-    if (useWorker && workerRef.current) {
-      workerRef.current.postMessage({
-        historicalThoughts,
-        streamingThoughts,
-      })
-    }
-  }, [historicalThoughts, streamingThoughts, useWorker])
+    return processThoughts(historicalThoughts, streamingThoughts)
+  }, [historicalThoughts, streamingThoughts])
 
   // Auto-scroll to bottom when new thoughts arrive
   useEffect(() => {

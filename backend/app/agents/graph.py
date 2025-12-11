@@ -23,7 +23,21 @@ from app.models.protocol import Protocol
 
 def route_next_agent(state: ProtocolState) -> Literal["drafter", "safety_guardian", "clinical_critic", "halt", "finalize", "finish"]:
     """Route to the next agent based on supervisor decision."""
-    return state["next_agent"]
+    next_agent = state.get("next_agent", "finish")
+    
+    # Validate that next_agent is a valid routing destination
+    # If somehow "supervisor" or invalid value is set, log and route to finish
+    valid_destinations = ["drafter", "safety_guardian", "clinical_critic", "halt", "finalize", "finish"]
+    if next_agent not in valid_destinations:
+        # Log the invalid routing attempt - this shouldn't happen if supervisor works correctly
+        import sys
+        sys.stderr.write(f"WARNING: Invalid next_agent value '{next_agent}' from state, defaulting to 'finish'. State keys: {list(state.keys())}\n")
+        # Ensure status is set before finishing
+        if "status" in state and state["status"] not in ["awaiting_approval", "approved", "rejected"]:
+            state["status"] = "awaiting_approval"
+        return "finish"
+    
+    return next_agent
 
 
 def create_protocol_workflow(db: Session, protocol_id: str):
@@ -114,7 +128,7 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
                 "agent_notes": [],
                 "iteration_count": thread_protocol.iteration_count or 0,
                 "status": current_status,
-                "next_agent": "supervisor",
+                "next_agent": "drafter",  # Start with drafter, not supervisor (supervisor is entry point)
                 "needs_revision": False,
                 "is_approved": current_status == "approved",
                 "should_halt": current_status == "awaiting_approval",
@@ -182,11 +196,17 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
                         if isinstance(node_data, dict):
                             if node_data.get("next_agent") == "finish":
                                 sys.stderr.write(f"Workflow reached finish condition at node {node_name}\n")
+                                # Ensure status is updated before finishing
+                                if thread_protocol.status not in ["awaiting_approval", "approved", "rejected"]:
+                                    thread_protocol.status = "awaiting_approval"
+                                    thread_db.commit()
                                 should_finish = True
                                 break
                             # Also check status in node data
                             if node_data.get("status") == "awaiting_approval":
                                 sys.stderr.write(f"Workflow reached awaiting_approval status at node {node_name}\n")
+                                thread_protocol.status = "awaiting_approval"
+                                thread_db.commit()
                                 should_finish = True
                                 break
                     if should_finish:

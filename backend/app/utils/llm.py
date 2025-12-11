@@ -57,7 +57,7 @@ def get_huggingface_llm():
             repo_id=settings.HUGGINGFACE_MODEL,
             huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
             temperature=0.7,
-            max_new_tokens=4096,
+            max_new_tokens=32768,  # Increased limit for longer protocols
         )
         return ChatHuggingFace(llm=llm)
     else:
@@ -66,7 +66,7 @@ def get_huggingface_llm():
             model=settings.HUGGINGFACE_MODEL,
             huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
             temperature=0.7,
-            max_tokens=4096,
+            max_tokens=32768,  # Increased limit for longer protocols
         )
 
 
@@ -84,7 +84,7 @@ def get_mistral_llm():
         model=settings.MISTRAL_MODEL,
         mistral_api_key=settings.MISTRAL_API_KEY,
         temperature=0.7,
-        max_tokens=4096,
+        max_tokens=32768,  # Increased limit for longer protocols
     )
 
 

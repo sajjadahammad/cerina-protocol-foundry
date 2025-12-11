@@ -136,6 +136,6 @@ Provide your assessment in JSON format:
         })
     
     state["last_agent"] = "clinical_critic"
-    state["next_agent"] = "supervisor"
+    # Don't set next_agent - we return to supervisor via direct edge, supervisor will set next_agent
     return state
 

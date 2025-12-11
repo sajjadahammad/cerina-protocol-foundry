@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { pdf } from "@react-pdf/renderer"
 import { useProtocolStore } from "@/stores/protocol-store"
@@ -15,6 +15,10 @@ import { ProtocolPDFDocument } from "./protocol-pdf"
 export function ProtocolEditor() {
   const { activeProtocol, editedContent, setEditedContent, isStreaming } = useProtocolStore()
   const [viewMode, setViewMode] = useState<"edit" | "preview">("preview")
+  const contentContainerRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lastContentLengthRef = useRef(0)
+  const userScrolledUpRef = useRef(false)
 
   // Get display content - prioritize editedContent, then currentDraft
   const displayContent = editedContent || activeProtocol?.currentDraft || ""
@@ -25,6 +29,64 @@ export function ProtocolEditor() {
       setEditedContent(activeProtocol.currentDraft)
     }
   }, [activeProtocol?.currentDraft, editedContent, setEditedContent])
+
+  // Auto-scroll when content is streaming
+  useEffect(() => {
+    const currentLength = displayContent.length
+    const isContentGrowing = currentLength > lastContentLengthRef.current
+    
+    if (isContentGrowing && isStreaming) {
+      // Check if user has scrolled up (not at bottom)
+      const container = viewMode === "edit" 
+        ? textareaRef.current 
+        : contentContainerRef.current
+      
+      if (container) {
+        const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100 // 100px threshold
+        
+        // Auto-scroll only if user hasn't manually scrolled up
+        if (isAtBottom || !userScrolledUpRef.current) {
+          requestAnimationFrame(() => {
+            if (container) {
+              container.scrollTop = container.scrollHeight
+              userScrolledUpRef.current = false
+            }
+          })
+        } else {
+          userScrolledUpRef.current = true
+        }
+      }
+    }
+
+    lastContentLengthRef.current = currentLength
+  }, [displayContent, isStreaming, viewMode])
+
+  // Handle manual scroll to detect if user scrolled up
+  useEffect(() => {
+    const container = viewMode === "edit" 
+      ? textareaRef.current 
+      : contentContainerRef.current
+    
+    if (!container) return
+
+    const handleScroll = () => {
+      if (isStreaming) {
+        const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100
+        userScrolledUpRef.current = !isAtBottom
+      }
+    }
+
+    container.addEventListener("scroll", handleScroll)
+    return () => container.removeEventListener("scroll", handleScroll)
+  }, [viewMode, isStreaming])
+
+  // Reset scroll tracking when streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      lastContentLengthRef.current = displayContent.length
+      userScrolledUpRef.current = false
+    }
+  }, [isStreaming])
 
   if (!activeProtocol) {
     return (
@@ -37,7 +99,8 @@ export function ProtocolEditor() {
   const isAwaitingApproval = activeProtocol.status === "awaiting_approval"
   const isApproved = activeProtocol.status === "approved"
   const isRejected = activeProtocol.status === "rejected"
-  const showGenerating = isStreaming && (activeProtocol.status === "reviewing" || activeProtocol.status === "drafting")
+  // Only show generating indicator if actively streaming AND content is still being generated
+  const showGenerating = isStreaming && (activeProtocol.status === "reviewing" || activeProtocol.status === "drafting") && !displayContent
 
   const handleCopy = async () => {
     try {
@@ -254,9 +317,10 @@ export function ProtocolEditor() {
       </div>
 
       {/* Editor/Preview Content */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4" ref={contentContainerRef}>
         {viewMode === "edit" ? (
           <Textarea
+            ref={textareaRef}
             value={displayContent}
             onChange={(e) => setEditedContent(e.target.value)}
             className="h-full min-h-[300px] resize-none font-mono text-sm leading-relaxed"

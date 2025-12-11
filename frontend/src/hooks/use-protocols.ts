@@ -109,25 +109,60 @@ export function useProtocolStream(protocolId: string | null) {
       try {
         const data = JSON.parse(event.data)
         
-        if (data.type === "protocol_update") {
-          // Update protocol in store and cache (no need to refetch - we have the data)
+        if (data.type === "protocol_update_incremental") {
+          // Incremental updates should only happen when workflow is complete (shouldn't happen during process)
+          // Only process if chunk exists
+          if (data.chunk) {
+            queryClient.setQueryData(["protocol", protocolId], (old: any) => {
+              if (!old) return old
+              const currentDraft = (old.currentDraft || "") + (data.chunk || "")
+              return {
+                ...old,
+                currentDraft: currentDraft,
+                status: data.status,
+                iterationCount: data.iterationCount,
+                safetyScore: data.safetyScore,
+                empathyMetrics: data.empathyMetrics,
+              }
+            })
+            setActiveProtocol((prev) => {
+              if (prev?.id === protocolId) {
+                const currentDraft = (prev.currentDraft || "") + (data.chunk || "")
+                return {
+                  ...prev,
+                  currentDraft: currentDraft,
+                  status: data.status,
+                  iterationCount: data.iterationCount,
+                  safetyScore: data.safetyScore,
+                  empathyMetrics: data.empathyMetrics,
+                }
+              }
+              return prev
+            })
+          }
+        } else if (data.type === "protocol_update") {
+          // Only update content when workflow is complete (terminal states)
+          const terminalStates = ["awaiting_approval", "approved", "rejected"]
+          const isTerminal = terminalStates.includes(data.status)
+          
           queryClient.setQueryData(["protocol", protocolId], (old: any) => {
             if (!old) return old
             return {
               ...old,
-              currentDraft: data.currentDraft,
+              // Only set currentDraft if workflow is complete, otherwise keep existing
+              currentDraft: isTerminal ? (data.currentDraft || "") : (old.currentDraft || ""),
               status: data.status,
               iterationCount: data.iterationCount,
               safetyScore: data.safetyScore,
               empathyMetrics: data.empathyMetrics,
             }
           })
-          // Update active protocol if it's the current one
           setActiveProtocol((prev) => {
             if (prev?.id === protocolId) {
               return {
                 ...prev,
-                currentDraft: data.currentDraft,
+                // Only set currentDraft if workflow is complete
+                currentDraft: isTerminal ? (data.currentDraft || "") : (prev.currentDraft || ""),
                 status: data.status,
                 iterationCount: data.iterationCount,
                 safetyScore: data.safetyScore,
@@ -136,6 +171,17 @@ export function useProtocolStream(protocolId: string | null) {
             }
             return prev
           })
+          
+          // Stop streaming if status is terminal
+          if (data.status === "awaiting_approval" || data.status === "approved" || data.status === "rejected") {
+            setStreaming(false)
+          }
+        } else if (data.type === "complete") {
+          // Handle completion message
+          setStreaming(false)
+          eventSource.close()
+          eventSourceRef.current = null
+          queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
         } else if (data.id && data.content) {
           // It's an agent thought - debounce to prevent rapid updates
           requestAnimationFrame(() => {
@@ -154,6 +200,7 @@ export function useProtocolStream(protocolId: string | null) {
     eventSource.onerror = () => {
       setStreaming(false)
       eventSource.close()
+      eventSourceRef.current = null
     }
 
     eventSource.addEventListener("complete", (event) => {
@@ -161,6 +208,7 @@ export function useProtocolStream(protocolId: string | null) {
       // Get final protocol state once after stream completes
       queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
       eventSource.close()
+      eventSourceRef.current = null
     })
   }, [protocolId, addStreamingThought, setStreaming, clearStreamingThoughts, setActiveProtocol, queryClient])
 

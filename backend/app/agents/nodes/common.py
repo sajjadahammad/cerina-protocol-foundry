@@ -25,5 +25,8 @@ def save_agent_thought(
         timestamp=datetime.now(IST),  # Use IST (Indian Standard Time)
     )
     db.add(thought)
-    db.commit()
+    db.flush()  # Flush to get the ID immediately
+    db.commit()  # Commit to make it visible to other sessions
+    db.refresh(thought)  # Refresh to ensure all fields are populated
+    return thought
 

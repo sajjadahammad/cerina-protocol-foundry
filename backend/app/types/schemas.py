@@ -98,6 +98,47 @@ class ProtocolResponse(BaseModel):
     approvedBy: Optional[str] = None
     
     @staticmethod
+    def _normalize_safety_score(safety_score):
+        """Normalize safety_score to ensure correct format."""
+        if not isinstance(safety_score, dict):
+            return SafetyScoreSchema(score=0, flags=[], notes="")
+        
+        # Normalize score - ensure it's an integer
+        score = safety_score.get("score", 0)
+        if isinstance(score, str):
+            import re
+            numbers = re.findall(r'\d+', str(score))
+            score = int(numbers[0]) if numbers else 0
+        score = max(0, min(100, int(score)))  # Clamp to 0-100
+        
+        # Normalize flags - ensure it's a list of strings
+        flags = safety_score.get("flags", [])
+        if isinstance(flags, str):
+            flags = [flags]
+        elif not isinstance(flags, list):
+            flags = []
+        flags = [str(f) if not isinstance(f, str) else f for f in flags]
+        
+        # Normalize notes - must be a string, not a dict
+        notes = safety_score.get("notes", "")
+        if isinstance(notes, dict):
+            # If notes is a dict, convert it to a readable string
+            import json
+            notes = json.dumps(notes, indent=2)
+        elif not isinstance(notes, str):
+            notes = str(notes) if notes else ""
+        
+        # Limit notes length
+        if len(notes) > 5000:
+            notes = notes[:5000] + "... (truncated)"
+        
+        return SafetyScoreSchema(
+            score=score,
+            flags=flags,
+            notes=notes
+        )
+    
+    @staticmethod
     def _normalize_empathy_metrics(empathy_metrics):
         """Normalize empathy_metrics to ensure correct format."""
         if not isinstance(empathy_metrics, dict):
@@ -135,7 +176,7 @@ class ProtocolResponse(BaseModel):
             currentDraft=obj.current_draft,
             versions=[ProtocolVersionSchema.from_orm(v) for v in obj.versions],
             status=obj.status or "drafting",
-            safetyScore=SafetyScoreSchema(**obj.safety_score) if isinstance(obj.safety_score, dict) else SafetyScoreSchema(score=0, flags=[], notes=""),
+            safetyScore=cls._normalize_safety_score(obj.safety_score),
             empathyMetrics=cls._normalize_empathy_metrics(obj.empathy_metrics),
             iterationCount=obj.iteration_count,
             agentThoughts=[AgentThoughtSchema.from_orm(t) for t in obj.agent_thoughts],

@@ -18,9 +18,13 @@ def drafter_node(state: ProtocolState, db: Session) -> ProtocolState:
     if "agent_notes" not in state:
         state["agent_notes"] = []
     
+    # Determine if this is a creation or revision
+    is_revision = state.get("needs_revision", False) or (state.get("current_draft", "").strip() != "")
+    thought_message = f"Starting draft {'revision' if is_revision else 'creation'} process."
+    
     save_agent_thought(
         db, protocol_id, "drafter", "Drafter",
-        "Starting draft creation/revision process.",
+        thought_message,
         "thought"
     )
     
@@ -81,13 +85,69 @@ Format as clear, actionable steps that a clinician can use with a patient."""
     
     try:
         llm = get_llm()
-        response = llm.invoke(prompt)
-        draft_content = response.content if hasattr(response, 'content') else str(response)
         
+        # Get protocol for incremental updates
+        protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+        if not protocol:
+            raise ValueError(f"Protocol {protocol_id} not found")
+        
+        # Initialize draft content
+        draft_content = ""
+        chunk_buffer = ""
+        chunk_size = 50  # Update database every N characters for smoother streaming
+        
+        # Use streaming to get incremental updates
+        try:
+            # Try streaming first (preferred for real-time updates)
+            if hasattr(llm, 'stream'):
+                # Stream the response and update database incrementally
+                for chunk in llm.stream(prompt):
+                    # Handle different chunk types from LangChain
+                    if hasattr(chunk, 'content'):
+                        chunk_text = chunk.content
+                    elif isinstance(chunk, str):
+                        chunk_text = chunk
+                    else:
+                        chunk_text = str(chunk)
+                    
+                    if chunk_text:
+                        draft_content += chunk_text
+                        chunk_buffer += chunk_text
+                        
+                        # Update database periodically for streaming
+                        if len(chunk_buffer) >= chunk_size:
+                            protocol.current_draft = draft_content
+                            protocol.status = "reviewing"
+                            db.commit()
+                            chunk_buffer = ""  # Reset buffer
+            else:
+                # Fallback to non-streaming if stream() not available
+                response = llm.invoke(prompt)
+                draft_content = response.content if hasattr(response, 'content') else str(response)
+                protocol.current_draft = draft_content
+                protocol.status = "reviewing"
+                db.commit()
+        except Exception as stream_error:
+            # If streaming fails, fall back to non-streaming
+            import sys
+            sys.stderr.write(f"Streaming failed, falling back to invoke: {stream_error}\n")
+            response = llm.invoke(prompt)
+            draft_content = response.content if hasattr(response, 'content') else str(response)
+            protocol.current_draft = draft_content
+            protocol.status = "reviewing"
+            db.commit()
+        
+        # Final update to ensure all content is saved
         state["current_draft"] = draft_content
+        protocol.current_draft = draft_content
+        protocol.status = "reviewing"
+        
         # Only increment iteration if we actually created new content
         if not state.get("needs_revision") or state["iteration_count"] == 0:
             state["iteration_count"] += 1
+        
+        protocol.iteration_count = state["iteration_count"]
+        db.commit()
         
         # Write to scratchpad
         state["agent_notes"].append({
@@ -95,13 +155,6 @@ Format as clear, actionable steps that a clinician can use with a patient."""
             "content": f"Draft {'revised' if state.get('needs_revision') else 'created'} (version {state['iteration_count']}). Length: {len(draft_content)} characters.",
             "timestamp": datetime.utcnow().isoformat()
         })
-        
-        # Update protocol in database
-        protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
-        if protocol:
-            protocol.current_draft = draft_content
-            protocol.iteration_count = state["iteration_count"]
-            protocol.status = "reviewing"
         
         # Create version record
         version = ProtocolVersion(
@@ -114,9 +167,13 @@ Format as clear, actionable steps that a clinician can use with a patient."""
         db.add(version)
         db.commit()
         
+        # Determine if this is a creation or revision
+        is_revision = state.get("needs_revision", False) or (state.get("iteration_count", 0) > 1)
+        action_message = f"Draft {'revised' if is_revision else 'created'} (version {state['iteration_count']}). Length: {len(draft_content)} characters."
+        
         save_agent_thought(
             db, protocol_id, "drafter", "Drafter",
-            f"Draft created/revised (version {state['iteration_count']}). Length: {len(draft_content)} characters.",
+            action_message,
             "action"
         )
         
@@ -170,6 +227,6 @@ Format as clear, actionable steps that a clinician can use with a patient."""
                 state["revision_reasons"].append(error_reason)
     
     state["last_agent"] = "drafter"
-    state["next_agent"] = "supervisor"
+    # Don't set next_agent - we return to supervisor via direct edge, supervisor will set next_agent
     return state
 
