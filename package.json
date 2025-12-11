@@ -1,6 +1,7 @@
 {
   "name": "cerina-protocol-foundry",
   "version": "1.0.0",
+  "author": "Sajjad Ahammed",
   "description": "Multi-agent system for autonomous CBT protocol design",
   "scripts": {
     "start": "npm run install:backend && concurrently \"npm run start:backend\" \"npm run start:frontend\"",

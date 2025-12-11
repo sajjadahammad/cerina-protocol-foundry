@@ -88,15 +88,31 @@ export function useProtocolStream(protocolId: string | null) {
   const { addStreamingThought, setStreaming, clearStreamingThoughts, setActiveProtocol, isStreaming } = useProtocolStore()
   const queryClient = useQueryClient()
   const eventSourceRef = useRef<EventSource | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const maxReconnectAttempts = 5
+  const reconnectDelay = 3000 // 3 seconds
 
   const connect = useCallback(() => {
     if (!protocolId) return
     
-    // Don't reconnect if already connected
-    if (eventSourceRef.current) return
+    // Close existing connection if any
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
 
-    // Clear previous thoughts
-    clearStreamingThoughts()
+    // Clear any pending reconnection
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+
+    // Clear previous thoughts only on first connection
+    if (reconnectAttemptsRef.current === 0) {
+      clearStreamingThoughts()
+    }
+    
     setStreaming(true)
 
     // Get token from localStorage for SSE authentication
@@ -179,6 +195,12 @@ export function useProtocolStream(protocolId: string | null) {
         } else if (data.type === "complete") {
           // Handle completion message
           setStreaming(false)
+          // Reset reconnect attempts on successful completion
+          reconnectAttemptsRef.current = 0
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current)
+            reconnectTimeoutRef.current = null
+          }
           eventSource.close()
           eventSourceRef.current = null
           queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
@@ -198,17 +220,53 @@ export function useProtocolStream(protocolId: string | null) {
     }
 
     eventSource.onerror = (error) => {
-      console.error("SSE connection error:", error)
-      // Don't close on error - EventSource will automatically try to reconnect
-      // Only close if the connection is explicitly closed (readyState === 2)
+      console.error("SSE connection error:", error, "readyState:", eventSource.readyState)
+      
+      // EventSource states: CONNECTING (0), OPEN (1), CLOSED (2)
       if (eventSource.readyState === EventSource.CLOSED) {
-        setStreaming(false)
+        // Connection is closed - attempt to reconnect
         eventSourceRef.current = null
+        setStreaming(false)
+        
+        // Attempt reconnection if we haven't exceeded max attempts
+        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+          reconnectAttemptsRef.current += 1
+          console.log(`Attempting to reconnect SSE (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`)
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect()
+          }, reconnectDelay)
+        } else {
+          console.error("Max reconnection attempts reached. Please refresh the page.")
+          // Fallback: periodically refetch to get updates
+          const fallbackInterval = setInterval(() => {
+            queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
+          }, 5000) // Refetch every 5 seconds as fallback
+          
+          // Clear fallback after 5 minutes
+          setTimeout(() => clearInterval(fallbackInterval), 300000)
+        }
+      } else if (eventSource.readyState === EventSource.CONNECTING) {
+        // Connection is trying to reconnect - keep streaming state
+        console.log("SSE reconnecting...")
       }
+    }
+
+    eventSource.onopen = () => {
+      // Connection opened successfully - reset reconnect attempts
+      console.log("SSE connection opened")
+      reconnectAttemptsRef.current = 0
+      setStreaming(true)
     }
 
     eventSource.addEventListener("complete", (event) => {
       setStreaming(false)
+      // Reset reconnect attempts on successful completion
+      reconnectAttemptsRef.current = 0
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
       // Get final protocol state once after stream completes
       queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
       eventSource.close()
@@ -217,6 +275,16 @@ export function useProtocolStream(protocolId: string | null) {
   }, [protocolId, addStreamingThought, setStreaming, clearStreamingThoughts, setActiveProtocol, queryClient])
 
   const disconnect = useCallback(() => {
+    // Clear reconnection timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    
+    // Reset reconnect attempts
+    reconnectAttemptsRef.current = 0
+    
+    // Close connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
       eventSourceRef.current = null

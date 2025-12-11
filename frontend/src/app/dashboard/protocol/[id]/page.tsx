@@ -55,18 +55,29 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
     }
 
     return () => {
-      // Only disconnect on unmount, not on status change
-      // This allows the connection to persist across status updates
+      // Only disconnect on unmount
+      disconnect()
     }
-  }, [protocol?.id]) // Only reconnect if protocol ID changes, not status
+  }, [protocol?.id, connect, disconnect]) // Reconnect if protocol ID changes
 
-  // Separate effect to handle status changes without disconnecting
+  // Separate effect to handle status changes and periodic refetch
   useEffect(() => {
-    if (protocol?.status === "awaiting_approval") {
+    if (!protocol) return
+
+    if (protocol.status === "awaiting_approval") {
       // Refetch to get final state when workflow completes
       refetch()
+    } else if (protocol.status === "reviewing" || protocol.status === "drafting") {
+      // Periodic refetch as fallback to ensure we get updates even if SSE fails
+      const fallbackInterval = setInterval(() => {
+        refetch()
+      }, 10000) // Refetch every 10 seconds as fallback
+
+      return () => {
+        clearInterval(fallbackInterval)
+      }
     }
-  }, [protocol?.status, refetch])
+  }, [protocol?.status, protocol?.id, refetch])
 
   const handleApprove = () => {
     if (!protocol) return
