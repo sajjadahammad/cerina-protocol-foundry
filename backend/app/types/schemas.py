@@ -97,6 +97,34 @@ class ProtocolResponse(BaseModel):
     approvedAt: Optional[datetime] = None
     approvedBy: Optional[str] = None
     
+    @staticmethod
+    def _normalize_empathy_metrics(empathy_metrics):
+        """Normalize empathy_metrics to ensure correct format."""
+        if not isinstance(empathy_metrics, dict):
+            return EmpathyMetricsSchema(score=0, tone="", suggestions=[])
+        
+        # Normalize tone - handle both string and object formats
+        tone_value = empathy_metrics.get("tone", "")
+        if isinstance(tone_value, dict):
+            # If tone is an object, extract a meaningful string
+            tone_value = tone_value.get("assessment", tone_value.get("suggestion", "Appropriate"))
+        if not isinstance(tone_value, str):
+            tone_value = str(tone_value) if tone_value else ""
+        
+        # Normalize suggestions - ensure it's a list of strings
+        suggestions = empathy_metrics.get("suggestions", [])
+        if isinstance(suggestions, str):
+            suggestions = [suggestions]
+        elif not isinstance(suggestions, list):
+            suggestions = []
+        suggestions = [str(s) if not isinstance(s, str) else s for s in suggestions]
+        
+        return EmpathyMetricsSchema(
+            score=int(empathy_metrics.get("score", 0)),
+            tone=tone_value,
+            suggestions=suggestions
+        )
+    
     @classmethod
     def from_orm(cls, obj):
         """Convert ORM object to schema."""
@@ -108,7 +136,7 @@ class ProtocolResponse(BaseModel):
             versions=[ProtocolVersionSchema.from_orm(v) for v in obj.versions],
             status=obj.status or "drafting",
             safetyScore=SafetyScoreSchema(**obj.safety_score) if isinstance(obj.safety_score, dict) else SafetyScoreSchema(score=0, flags=[], notes=""),
-            empathyMetrics=EmpathyMetricsSchema(**obj.empathy_metrics) if isinstance(obj.empathy_metrics, dict) else EmpathyMetricsSchema(score=0, tone="", suggestions=[]),
+            empathyMetrics=cls._normalize_empathy_metrics(obj.empathy_metrics),
             iterationCount=obj.iteration_count,
             agentThoughts=[AgentThoughtSchema.from_orm(t) for t in obj.agent_thoughts],
             createdAt=obj.created_at,

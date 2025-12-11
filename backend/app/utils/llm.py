@@ -51,13 +51,13 @@ def get_huggingface_llm():
     if USE_NEW_HUGGINGFACE:
         if not HuggingFaceEndpoint:
             raise ValueError("HuggingFaceEndpoint not available. Run: pip install langchain-huggingface")
+        # Note: Can't use endpoint_url with repo_id - HuggingFaceEndpoint only accepts one
+        # The repo_id will automatically use the Inference API endpoint
         llm = HuggingFaceEndpoint(
             repo_id=settings.HUGGINGFACE_MODEL,
             huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
             temperature=0.7,
             max_new_tokens=4096,
-            # Force direct Inference API endpoint to avoid router/payment issues
-            # endpoint_url="https://api-inference.huggingface.co",
         )
         return ChatHuggingFace(llm=llm)
     else:

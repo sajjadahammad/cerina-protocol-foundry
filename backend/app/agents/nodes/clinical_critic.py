@@ -48,10 +48,33 @@ Provide your assessment in JSON format:
         }
         empathy_data = parse_json_response(response_text, default_empathy)
         
+        # Normalize tone field - handle both string and object formats
+        tone_value = empathy_data.get("tone", "neutral")
+        if isinstance(tone_value, dict):
+            # If tone is an object, extract a meaningful string
+            # Try assessment first, then suggestion, then convert to string
+            tone_str = tone_value.get("assessment", tone_value.get("suggestion", str(tone_value)))
+            if isinstance(tone_str, str):
+                tone_value = tone_str
+            else:
+                tone_value = "Appropriate"  # Fallback
+        elif not isinstance(tone_value, str):
+            # If it's not a string or dict, convert to string
+            tone_value = str(tone_value) if tone_value else "neutral"
+        
+        # Normalize suggestions - ensure it's a list of strings
+        suggestions = empathy_data.get("suggestions", [])
+        if isinstance(suggestions, str):
+            suggestions = [suggestions]
+        elif not isinstance(suggestions, list):
+            suggestions = []
+        # Ensure all suggestions are strings
+        suggestions = [str(s) if not isinstance(s, str) else s for s in suggestions]
+        
         state["empathy_metrics"] = {
-            "score": empathy_data.get("score", 75),
-            "tone": empathy_data.get("tone", "neutral"),
-            "suggestions": empathy_data.get("suggestions", [])
+            "score": int(empathy_data.get("score", 75)),
+            "tone": tone_value,  # Now guaranteed to be a string
+            "suggestions": suggestions  # Now guaranteed to be a list of strings
         }
         
         # Update protocol in database

@@ -36,24 +36,34 @@ import json
 # Verify API key is configured and reload settings if needed
 # Pydantic-settings reads env vars at instantiation, so we need to check os.environ directly
 hf_key_from_env = os.getenv("HUGGINGFACE_API_KEY")
-if hf_key_from_env and not settings.HUGGINGFACE_API_KEY:
+mistral_key_from_env = os.getenv("MISTRAL_API_KEY")
+if (hf_key_from_env and not settings.HUGGINGFACE_API_KEY) or (mistral_key_from_env and not settings.MISTRAL_API_KEY):
     # Environment variable is set but settings didn't pick it up - reload settings
     from app.config import Settings
     settings = Settings()
     sys.stderr.write("Reloaded settings to pick up environment variables\n")
 
-# Debug output (to stderr so it doesn't break MCP JSON protocol)
-if settings.LLM_PROVIDER.lower() == "huggingface":
-    if settings.HUGGINGFACE_API_KEY:
-        sys.stderr.write(f"✓ HUGGINGFACE_API_KEY is configured (length: {len(settings.HUGGINGFACE_API_KEY)})\n")
+# Verify LLM can be initialized using the llm.py method
+try:
+    from app.utils.llm import get_llm
+    llm = get_llm()
+    provider = settings.LLM_PROVIDER.lower()
+    if provider == "huggingface":
+        sys.stderr.write(f"✓ LLM initialized successfully (Provider: {provider}, Model: {settings.HUGGINGFACE_MODEL})\n")
+    elif provider == "mistral":
+        sys.stderr.write(f"✓ LLM initialized successfully (Provider: {provider}, Model: {settings.MISTRAL_MODEL})\n")
     else:
-        sys.stderr.write("✗ WARNING: HUGGINGFACE_API_KEY not found\n")
-        sys.stderr.write(f"  LLM_PROVIDER: {settings.LLM_PROVIDER}\n")
-        sys.stderr.write(f"  os.getenv('HUGGINGFACE_API_KEY'): {'SET' if os.getenv('HUGGINGFACE_API_KEY') else 'NOT SET'}\n")
-        # Try to set it directly from os.environ as fallback
-        if os.getenv("HUGGINGFACE_API_KEY"):
-            settings.HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-            sys.stderr.write("  Set HUGGINGFACE_API_KEY directly from os.environ\n")
+        sys.stderr.write(f"✓ LLM initialized successfully (Provider: {provider})\n")
+except Exception as e:
+    provider = settings.LLM_PROVIDER.lower()
+    sys.stderr.write(f"✗ WARNING: LLM initialization failed: {str(e)}\n")
+    sys.stderr.write(f"  LLM_PROVIDER: {provider}\n")
+    if provider == "huggingface":
+        sys.stderr.write(f"  HUGGINGFACE_API_KEY: {'SET' if os.getenv('HUGGINGFACE_API_KEY') else 'NOT SET'}\n")
+        sys.stderr.write(f"  HUGGINGFACE_MODEL: {settings.HUGGINGFACE_MODEL}\n")
+    elif provider == "mistral":
+        sys.stderr.write(f"  MISTRAL_API_KEY: {'SET' if os.getenv('MISTRAL_API_KEY') else 'NOT SET'}\n")
+        sys.stderr.write(f"  MISTRAL_MODEL: {settings.MISTRAL_MODEL}\n")
 
 # Initialize database
 init_db()
@@ -98,13 +108,45 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_protocol_status",
-            description="Get the current status and details of a protocol by its ID. Returns status, current draft, iteration count, safety scores, empathy metrics, and other relevant information.",
+            description="Get the current status and details of a protocol by its ID. Returns status, FULL protocol content (not preview), iteration count, safety scores, empathy metrics, and all agent thoughts.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "protocol_id": {
                         "type": "string",
                         "description": "The protocol ID to check status for."
+                    }
+                },
+                "required": ["protocol_id"]
+            }
+        ),
+        Tool(
+            name="get_protocol_content",
+            description="Get the complete full protocol content by protocol ID. Returns the entire current_draft text without truncation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "protocol_id": {
+                        "type": "string",
+                        "description": "The protocol ID to get full content for."
+                    }
+                },
+                "required": ["protocol_id"]
+            }
+        ),
+        Tool(
+            name="get_protocol_updates",
+            description="Get all new agent thoughts and protocol updates since the last check. Use this to monitor the protocol generation process in real-time. Returns new thoughts, protocol status changes, and current draft updates. Call this repeatedly with the returned last_thought_id to stream updates.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "protocol_id": {
+                        "type": "string",
+                        "description": "The protocol ID to get updates for."
+                    },
+                    "last_thought_id": {
+                        "type": "string",
+                        "description": "Optional: The ID of the last thought you received. Only thoughts after this ID will be returned. Omit to get all thoughts."
                     }
                 },
                 "required": ["protocol_id"]
@@ -207,16 +249,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     }, indent=2)
                 )]
             
-            # Get recent agent thoughts (last 10)
-            recent_thoughts = (
+            # Get ALL agent thoughts (not just recent 10) - ordered chronologically
+            all_thoughts = (
                 db.query(AgentThought)
                 .filter(AgentThought.protocol_id == protocol_id)
-                .order_by(AgentThought.timestamp.desc())
-                .limit(10)
+                .order_by(AgentThought.timestamp.asc())
                 .all()
             )
             
-            # Format response
+            # Format response with FULL content
             response = {
                 "protocol_id": protocol.id,
                 "title": protocol.title,
@@ -224,22 +265,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "protocol_type": protocol.protocol_type,
                 "intent": protocol.intent,
                 "iteration_count": protocol.iteration_count,
-                "current_draft_preview": protocol.current_draft[:500] + "..." if len(protocol.current_draft) > 500 else protocol.current_draft,
+                "current_draft": protocol.current_draft,  # FULL content, not preview
                 "current_draft_length": len(protocol.current_draft),
                 "safety_score": protocol.safety_score or {"score": 0, "flags": [], "notes": ""},
                 "empathy_metrics": protocol.empathy_metrics or {"score": 0, "tone": "", "suggestions": []},
                 "created_at": protocol.created_at.isoformat() if protocol.created_at else None,
                 "updated_at": protocol.updated_at.isoformat() if protocol.updated_at else None,
-                "recent_thoughts": [
+                "all_thoughts": [  # All thoughts in chronological order
                     {
+                        "id": thought.id,
                         "agent_role": thought.agent_role,
                         "agent_name": thought.agent_name,
                         "content": thought.content,
                         "type": thought.type,
                         "timestamp": thought.timestamp.isoformat() if thought.timestamp else None
                     }
-                    for thought in recent_thoughts
-                ]
+                    for thought in all_thoughts
+                ],
+                "thought_count": len(all_thoughts)
             }
             
             # Add status-specific information
@@ -250,7 +293,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             elif protocol.status == "rejected":
                 response["message"] = "Protocol was rejected."
             elif protocol.status in ["drafting", "reviewing"]:
-                response["message"] = f"Protocol is currently being processed by the multi-agent system (status: {protocol.status})."
+                response["message"] = f"Protocol is currently being processed by the multi-agent system (status: {protocol.status}). Use get_protocol_updates to monitor progress in real-time."
             
             return [TextContent(
                 type="text",
@@ -261,6 +304,122 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 type="text",
                 text=json.dumps({
                     "error": f"Error getting protocol status: {str(e)}"
+                }, indent=2)
+            )]
+        finally:
+            db.close()
+    elif name == "get_protocol_content":
+        protocol_id = arguments.get("protocol_id")
+        
+        if not protocol_id:
+            return [TextContent(
+                type="text",
+                text="Error: protocol_id is required"
+            )]
+        
+        db = SessionLocal()
+        try:
+            protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+            
+            if not protocol:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Protocol {protocol_id} not found"
+                    }, indent=2)
+                )]
+            
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "protocol_id": protocol.id,
+                    "title": protocol.title,
+                    "status": protocol.status,
+                    "full_content": protocol.current_draft,  # Complete protocol text
+                    "content_length": len(protocol.current_draft),
+                    "updated_at": protocol.updated_at.isoformat() if protocol.updated_at else None
+                }, indent=2)
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": f"Error getting protocol content: {str(e)}"
+                }, indent=2)
+            )]
+        finally:
+            db.close()
+    elif name == "get_protocol_updates":
+        protocol_id = arguments.get("protocol_id")
+        last_thought_id = arguments.get("last_thought_id")
+        
+        if not protocol_id:
+            return [TextContent(
+                type="text",
+                text="Error: protocol_id is required"
+            )]
+        
+        db = SessionLocal()
+        try:
+            protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
+            
+            if not protocol:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Protocol {protocol_id} not found"
+                    }, indent=2)
+                )]
+            
+            # Get new thoughts since last_thought_id
+            query = db.query(AgentThought).filter(
+                AgentThought.protocol_id == protocol_id
+            ).order_by(AgentThought.timestamp.asc())
+            
+            if last_thought_id:
+                query = query.filter(AgentThought.id > last_thought_id)
+            
+            new_thoughts = query.all()
+            
+            # Refresh protocol to get latest state
+            db.refresh(protocol)
+            
+            response = {
+                "protocol_id": protocol.id,
+                "status": protocol.status,
+                "new_thoughts": [
+                    {
+                        "id": thought.id,
+                        "agent_role": thought.agent_role,
+                        "agent_name": thought.agent_name,
+                        "content": thought.content,
+                        "type": thought.type,
+                        "timestamp": thought.timestamp.isoformat() if thought.timestamp else None
+                    }
+                    for thought in new_thoughts
+                ],
+                "new_thought_count": len(new_thoughts),
+                "protocol_update": {
+                    "current_draft": protocol.current_draft,
+                    "current_draft_length": len(protocol.current_draft),
+                    "status": protocol.status,
+                    "iteration_count": protocol.iteration_count,
+                    "safety_score": protocol.safety_score,
+                    "empathy_metrics": protocol.empathy_metrics,
+                },
+                "is_complete": protocol.status in ["approved", "rejected", "awaiting_approval"],
+                "last_thought_id": new_thoughts[-1].id if new_thoughts else last_thought_id
+            }
+            
+            return [TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": f"Error getting protocol updates: {str(e)}"
                 }, indent=2)
             )]
         finally:

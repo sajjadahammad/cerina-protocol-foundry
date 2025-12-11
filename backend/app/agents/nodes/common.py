@@ -1,7 +1,10 @@
 """Common utilities for agent nodes."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from app.models.protocol import AgentThought
+
+# IST (Indian Standard Time) is UTC+5:30
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def save_agent_thought(
@@ -19,7 +22,7 @@ def save_agent_thought(
         agent_name=agent_name,
         content=content,
         type=thought_type,
-        timestamp=datetime.now(timezone.utc),  # Explicitly set current UTC time
+        timestamp=datetime.now(IST),  # Use IST (Indian Standard Time)
     )
     db.add(thought)
     db.commit()

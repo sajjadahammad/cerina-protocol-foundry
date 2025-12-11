@@ -1,10 +1,13 @@
 """Drafter agent node: creates and revises protocol drafts using LLM."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.agents.state import ProtocolState
 from app.agents.nodes.common import save_agent_thought
 from app.utils.llm import get_llm
 from app.models.protocol import Protocol, ProtocolVersion
 from sqlalchemy.orm import Session
+
+# IST (Indian Standard Time) is UTC+5:30
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def drafter_node(state: ProtocolState, db: Session) -> ProtocolState:
@@ -85,7 +88,7 @@ Format as clear, actionable steps that a clinician can use with a patient."""
             version=state["iteration_count"],
             content=draft_content,
             author="drafter",
-            timestamp=datetime.now(timezone.utc),  # Explicitly set current UTC time
+            timestamp=datetime.now(IST),  # Use IST (Indian Standard Time)
         )
         db.add(version)
         db.commit()

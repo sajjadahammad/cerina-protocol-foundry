@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./cerina_foundry.db"
     
     # LLM Provider Selection
-    LLM_PROVIDER: str = "huggingface"  # "huggingface" or "mistral"
+    LLM_PROVIDER: str = "mistral"  # "huggingface" or "mistral"
     
     # Mistral AI (commented out - can switch back by setting LLM_PROVIDER=mistral)
     MISTRAL_API_KEY: Optional[str] = None
