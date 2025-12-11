@@ -9,23 +9,23 @@ class Settings(BaseSettings):
     
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+    SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./cerina_foundry.db")
+    DATABASE_URL: str = "sqlite:///./cerina_foundry.db"
     
     # LLM Provider Selection
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "huggingface")  # "huggingface" or "mistral"
+    LLM_PROVIDER: str = "huggingface"  # "huggingface" or "mistral"
     
     # Mistral AI (commented out - can switch back by setting LLM_PROVIDER=mistral)
-    MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
-    MISTRAL_MODEL: str = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
+    MISTRAL_API_KEY: Optional[str] = None
+    MISTRAL_MODEL: str = "mistral-large-latest"
     
     # Hugging Face (Qwen 2.5 Pro)
-    HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")
-    HUGGINGFACE_MODEL: str = os.getenv("HUGGINGFACE_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+    HUGGINGFACE_API_KEY: Optional[str] = None
+    HUGGINGFACE_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
     
     # CORS
     CORS_ORIGINS: list[str] = [
@@ -40,8 +40,11 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"  # Ignore extra environment variables
+        # Ensure we read from environment variables
+        env_prefix = ""  # No prefix needed
 
 
 settings = Settings()

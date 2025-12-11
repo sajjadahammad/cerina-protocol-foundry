@@ -352,48 +352,65 @@ function renderInlineMarkdown(text: string): (string | React.ReactElement)[] {
       text: string
       style: any
     } | null = null
+    let earliestIndex: number | null = null
 
     // Check for bold (**text**)
     const boldMatch = /\*\*(.*?)\*\*/.exec(remaining)
-    if (boldMatch && (!earliestMatch || boldMatch.index < earliestMatch.index)) {
-      earliestMatch = {
-        index: boldMatch.index,
-        length: boldMatch[0].length,
-        text: boldMatch[1],
-        style: styles.bold,
+    if (boldMatch) {
+      const boldIndex = boldMatch.index
+      if (earliestIndex === null || boldIndex < earliestIndex) {
+        earliestMatch = {
+          index: boldIndex,
+          length: boldMatch[0].length,
+          text: boldMatch[1],
+          style: styles.bold,
+        }
+        earliestIndex = boldIndex
       }
     }
 
     // Check for italic (*text*) - but not if it's part of bold
     const italicMatch = /(?<!\*)\*([^*]+?)\*(?!\*)/.exec(remaining)
-    if (italicMatch && (!earliestMatch || italicMatch.index < earliestMatch.index)) {
-      earliestMatch = {
-        index: italicMatch.index,
-        length: italicMatch[0].length,
-        text: italicMatch[1],
-        style: styles.italic,
+    if (italicMatch) {
+      const italicIndex = italicMatch.index
+      if (earliestIndex === null || italicIndex < earliestIndex) {
+        earliestMatch = {
+          index: italicIndex,
+          length: italicMatch[0].length,
+          text: italicMatch[1],
+          style: styles.italic,
+        }
+        earliestIndex = italicIndex
       }
     }
 
     // Check for inline code (`code`)
     const codeMatch = /`([^`]+)`/.exec(remaining)
-    if (codeMatch && (!earliestMatch || codeMatch.index < earliestMatch.index)) {
-      earliestMatch = {
-        index: codeMatch.index,
-        length: codeMatch[0].length,
-        text: codeMatch[1],
-        style: styles.code,
+    if (codeMatch) {
+      const codeIndex = codeMatch.index
+      if (earliestIndex === null || codeIndex < earliestIndex) {
+        earliestMatch = {
+          index: codeIndex,
+          length: codeMatch[0].length,
+          text: codeMatch[1],
+          style: styles.code,
+        }
+        earliestIndex = codeIndex
       }
     }
 
     // Check for links [text](url)
     const linkMatch = /\[([^\]]+)\]\([^\)]+\)/.exec(remaining)
-    if (linkMatch && (!earliestMatch || linkMatch.index < earliestMatch.index)) {
-      earliestMatch = {
-        index: linkMatch.index,
-        length: linkMatch[0].length,
-        text: linkMatch[1],
-        style: null,
+    if (linkMatch) {
+      const linkIndex = linkMatch.index
+      if (earliestIndex === null || linkIndex < earliestIndex) {
+        earliestMatch = {
+          index: linkIndex,
+          length: linkMatch[0].length,
+          text: linkMatch[1],
+          style: null,
+        }
+        earliestIndex = linkIndex
       }
     }
 

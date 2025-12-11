@@ -16,6 +16,7 @@ from app.agents.checkpointer import create_checkpointer
 from sqlalchemy.orm import Session
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import sys
 
 
 def route_next_agent(state: ProtocolState) -> Literal["drafter", "safety_guardian", "clinical_critic", "halt", "finalize", "finish"]:
@@ -128,12 +129,13 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             )
             
             # Save initial thought and update status BEFORE starting workflow
-            print(f"Starting workflow for protocol {protocol_id}")
+            # Use stderr for logging to avoid breaking MCP JSON protocol (stdout is for JSON-RPC)
+            sys.stderr.write(f"Starting workflow for protocol {protocol_id}\n")
             thread_protocol.status = "reviewing"
             thread_db.commit()
             
             # Start the workflow stream with recursion limit
-            print(f"Beginning workflow stream for protocol {protocol_id}")
+            sys.stderr.write(f"Beginning workflow stream for protocol {protocol_id}\n")
             event_count = 0
             # Add recursion limit to prevent infinite loops
             config_with_limit = {
@@ -147,19 +149,19 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
             try:
                 first_event = next(stream)
                 event_count += 1
-                print(f"Workflow event {event_count} for protocol {protocol_id}: {list(first_event.keys())}")
+                sys.stderr.write(f"Workflow event {event_count} for protocol {protocol_id}: {list(first_event.keys())}\n")
             except StopIteration:
-                print(f"WARNING: Workflow stream is empty for protocol {protocol_id}")
+                sys.stderr.write(f"WARNING: Workflow stream is empty for protocol {protocol_id}\n")
                 raise ValueError("Workflow stream produced no events")
             
             # Process remaining events
             for event in stream:
                 event_count += 1
-                print(f"Workflow event {event_count} for protocol {protocol_id}: {list(event.keys())}")
+                sys.stderr.write(f"Workflow event {event_count} for protocol {protocol_id}: {list(event.keys())}\n")
                 
                 # Check recursion limit early
                 if event_count >= 200:
-                    print(f"WARNING: Approaching recursion limit for protocol {protocol_id}, forcing halt")
+                    sys.stderr.write(f"WARNING: Approaching recursion limit for protocol {protocol_id}, forcing halt\n")
                     thread_protocol.status = "awaiting_approval"
                     thread_db.commit()
                     break
@@ -171,7 +173,7 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
                 
                 # Stop if protocol is no longer in reviewing state (halted, approved, or rejected)
                 if thread_protocol.status not in ["reviewing", "drafting"]:
-                    print(f"Protocol {protocol_id} status changed to {thread_protocol.status}, stopping workflow")
+                    sys.stderr.write(f"Protocol {protocol_id} status changed to {thread_protocol.status}, stopping workflow\n")
                     break
                 
                 # Check if we've hit a finish condition in the event
@@ -180,23 +182,23 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
                     for node_name, node_data in event.items():
                         if isinstance(node_data, dict):
                             if node_data.get("next_agent") == "finish":
-                                print(f"Workflow reached finish condition at node {node_name}")
+                                sys.stderr.write(f"Workflow reached finish condition at node {node_name}\n")
                                 should_finish = True
                                 break
                             # Also check status in node data
                             if node_data.get("status") == "awaiting_approval":
-                                print(f"Workflow reached awaiting_approval status at node {node_name}")
+                                sys.stderr.write(f"Workflow reached awaiting_approval status at node {node_name}\n")
                                 should_finish = True
                                 break
                     if should_finish:
                         break
             
-            print(f"Workflow completed for protocol {protocol_id} after {event_count} events")
+            sys.stderr.write(f"Workflow completed for protocol {protocol_id} after {event_count} events\n")
         except Exception as e:
             # Log error and update protocol status
             import traceback
             error_msg = f"Workflow error: {str(e)}\n{traceback.format_exc()}"
-            print(error_msg)
+            sys.stderr.write(error_msg + "\n")
             try:
                 save_agent_thought(
                     thread_db, protocol_id, "supervisor", "Supervisor",
@@ -208,7 +210,7 @@ def run_protocol_workflow(db: Session, protocol_id: str, intent: str, protocol_t
                     thread_protocol.status = "rejected"
                     thread_db.commit()
             except Exception as db_error:
-                print(f"Error updating protocol status: {str(db_error)}")
+                sys.stderr.write(f"Error updating protocol status: {str(db_error)}\n")
         finally:
             thread_db.close()
     
@@ -239,7 +241,7 @@ def resume_interrupted_workflows(db: Session):
             )
         except Exception as e:
             # Log error but continue with other protocols
-            print(f"Failed to resume protocol {protocol.id}: {str(e)}")
+            sys.stderr.write(f"Failed to resume protocol {protocol.id}: {str(e)}\n")
             protocol.status = "rejected"
             db.commit()
 
