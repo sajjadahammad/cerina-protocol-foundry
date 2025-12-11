@@ -179,7 +179,8 @@ class ProtocolResponse(BaseModel):
             safetyScore=cls._normalize_safety_score(obj.safety_score),
             empathyMetrics=cls._normalize_empathy_metrics(obj.empathy_metrics),
             iterationCount=obj.iteration_count,
-            agentThoughts=[AgentThoughtSchema.from_orm(t) for t in obj.agent_thoughts],
+            # Thoughts are already sorted by timestamp via relationship order_by, but ensure explicit sorting
+            agentThoughts=[AgentThoughtSchema.from_orm(t) for t in sorted(obj.agent_thoughts, key=lambda x: x.timestamp)],
             createdAt=obj.created_at,
             updatedAt=obj.updated_at or obj.created_at,
             approvedAt=obj.approved_at,

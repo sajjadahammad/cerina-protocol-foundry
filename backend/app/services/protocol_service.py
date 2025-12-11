@@ -28,9 +28,9 @@ class ProtocolService:
     def get_agent_visit_count(db: Session, protocol_id: str, agent_role: str) -> int:
         """Get the number of times an agent has visited this protocol.
         
-        Counts distinct visits by grouping thoughts that occur within a short time window.
-        Each agent visit typically produces multiple thoughts (thought, action, feedback),
-        so we group thoughts within 2 minutes as a single visit.
+        Counts distinct visits by counting "thought" type entries, since each agent
+        visit starts with a "thought" type entry. This is more reliable than time-based
+        grouping which can miscount if LLM calls take a long time.
         
         Args:
             db: Database session
@@ -40,34 +40,12 @@ class ProtocolService:
         Returns:
             Number of distinct visits (not total thoughts)
         """
-        from sqlalchemy import func, distinct
-        from datetime import timedelta
-        
-        # Get all thoughts for this agent
-        thoughts = db.query(AgentThought).filter(
+        # Count "thought" type entries - each agent visit starts with one
+        visit_count = db.query(AgentThought).filter(
             AgentThought.protocol_id == protocol_id,
-            AgentThought.agent_role == agent_role
-        ).order_by(AgentThought.timestamp).all()
-        
-        if not thoughts:
-            return 0
-        
-        # Group thoughts by time windows (thoughts within 2 minutes are same visit)
-        visit_count = 0
-        last_visit_time = None
-        
-        for thought in thoughts:
-            if last_visit_time is None:
-                # First thought = first visit
-                visit_count = 1
-                last_visit_time = thought.timestamp
-            else:
-                # If this thought is more than 2 minutes after last visit, it's a new visit
-                time_diff = (thought.timestamp - last_visit_time).total_seconds()
-                if time_diff > 120:  # 2 minutes = new visit
-                    visit_count += 1
-                    last_visit_time = thought.timestamp
-                # Otherwise, same visit (don't increment)
+            AgentThought.agent_role == agent_role,
+            AgentThought.type == "thought"  # Each visit starts with a "thought"
+        ).count()
         
         return visit_count
     

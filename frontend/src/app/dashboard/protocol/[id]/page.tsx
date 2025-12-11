@@ -38,26 +38,35 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
   }, [protocol, setActiveProtocol])
 
   useEffect(() => {
-    if (protocol) {
-      // Connect SSE for agent thoughts if protocol is in an active state
-      const activeStatuses = ["drafting", "reviewing"]
-      const shouldConnect = activeStatuses.includes(protocol.status)
+    if (!protocol) return
 
-      if (shouldConnect) {
-        connect()
-      } else {
-        disconnect()
-        // Refetch once when workflow completes to get final state
-        if (protocol.status === "awaiting_approval") {
-          refetch()
-        }
+    // Connect SSE for agent thoughts if protocol is in an active state
+    const activeStatuses = ["drafting", "reviewing", "awaiting_approval"]
+    const shouldConnect = activeStatuses.includes(protocol.status)
+
+    if (shouldConnect) {
+      connect()
+    } else {
+      disconnect()
+      // Refetch once when workflow completes to get final state
+      if (protocol.status === "approved" || protocol.status === "rejected") {
+        refetch()
       }
     }
 
     return () => {
-      disconnect()
+      // Only disconnect on unmount, not on status change
+      // This allows the connection to persist across status updates
     }
-  }, [protocol?.status, connect, disconnect, refetch])
+  }, [protocol?.id]) // Only reconnect if protocol ID changes, not status
+
+  // Separate effect to handle status changes without disconnecting
+  useEffect(() => {
+    if (protocol?.status === "awaiting_approval") {
+      // Refetch to get final state when workflow completes
+      refetch()
+    }
+  }, [protocol?.status, refetch])
 
   const handleApprove = () => {
     if (!protocol) return

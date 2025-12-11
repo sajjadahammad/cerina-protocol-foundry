@@ -197,10 +197,14 @@ export function useProtocolStream(protocolId: string | null) {
       }
     }
 
-    eventSource.onerror = () => {
-      setStreaming(false)
-      eventSource.close()
-      eventSourceRef.current = null
+    eventSource.onerror = (error) => {
+      console.error("SSE connection error:", error)
+      // Don't close on error - EventSource will automatically try to reconnect
+      // Only close if the connection is explicitly closed (readyState === 2)
+      if (eventSource.readyState === EventSource.CLOSED) {
+        setStreaming(false)
+        eventSourceRef.current = null
+      }
     }
 
     eventSource.addEventListener("complete", (event) => {

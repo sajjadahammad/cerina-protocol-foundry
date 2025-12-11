@@ -1,40 +1,88 @@
 "use client"
 
-import { AnimatePresence, motion } from "framer-motion"
 import { useProtocolStore } from "@/stores/protocol-store"
 import { AgentThoughtCard } from "./agent-thought-card"
 import { Loader2, Brain } from "lucide-react"
 import { useEffect, useRef, useMemo } from "react"
 import type { AgentThought } from "@/types/protocols"
-import { processThoughts } from "@/utils/thought-processor"
 
 export function AgentThoughtsPanel() {
   const { activeProtocol, streamingThoughts, isStreaming } = useProtocolStore()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const userScrolledUpRef = useRef(false)
+  const lastThoughtCountRef = useRef(0)
 
   const historicalThoughts = activeProtocol?.agentThoughts || []
 
-  // Process thoughts directly without web worker
+  // Display thoughts - backend already sends them sorted by timestamp
   const sortedThoughts = useMemo(() => {
-    return processThoughts(historicalThoughts, streamingThoughts)
+    // Both historical and streaming thoughts are already sorted by backend
+    // Just deduplicate by ID (keep latest if duplicate) while preserving order
+    const thoughtMap = new Map<string, AgentThought>()
+    
+    // Add historical thoughts first (already sorted)
+    historicalThoughts.forEach((thought) => {
+      if (thought.id) {
+        thoughtMap.set(thought.id, thought)
+      }
+    })
+    
+    // Add streaming thoughts (already sorted, will overwrite duplicates)
+    streamingThoughts.forEach((thought) => {
+      if (thought.id) {
+        thoughtMap.set(thought.id, thought)
+      }
+    })
+    
+    // Map preserves insertion order, so values are in correct order
+    return Array.from(thoughtMap.values())
   }, [historicalThoughts, streamingThoughts])
+
+  // Track user scroll to pause auto-scroll if they scroll up
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      if (!container) return
+      const { scrollHeight, scrollTop, clientHeight } = container
+      const isAtBottom = scrollHeight - scrollTop - clientHeight <= 10 // 10px threshold
+      
+      if (isAtBottom) {
+        userScrolledUpRef.current = false
+      } else {
+        userScrolledUpRef.current = true
+      }
+    }
+
+    container.addEventListener("scroll", handleScroll)
+    return () => {
+      container.removeEventListener("scroll", handleScroll)
+    }
+  }, [])
 
   // Auto-scroll to bottom when new thoughts arrive
   useEffect(() => {
-    if (scrollContainerRef.current) {
-      const container = scrollContainerRef.current
-      // Only auto-scroll if user is near bottom (within 100px)
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
-      if (isNearBottom) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
-          }
-        })
-      }
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const currentCount = sortedThoughts.length
+    const isNewThought = currentCount > lastThoughtCountRef.current
+    lastThoughtCountRef.current = currentCount
+
+    // Auto-scroll if:
+    // 1. New thoughts arrived AND
+    // 2. (Streaming is active OR user hasn't scrolled up)
+    if (isNewThought && (isStreaming || !userScrolledUpRef.current)) {
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+          userScrolledUpRef.current = false // Reset after auto-scrolling
+        }
+      })
     }
-  }, [sortedThoughts.length])
+  }, [sortedThoughts.length, isStreaming])
 
   if (sortedThoughts.length === 0 && !isStreaming) {
     return (
@@ -53,7 +101,7 @@ export function AgentThoughtsPanel() {
         {isStreaming && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
-            <span>Processing...</span>
+            <span>Active</span>
           </div>
         )}
       </div>
@@ -63,16 +111,13 @@ export function AgentThoughtsPanel() {
         style={{ minHeight: 0 }}
       >
         <div className="p-4 space-y-3">
-          <AnimatePresence mode="popLayout">
-            {sortedThoughts.map((thought, index) => (
-              <AgentThoughtCard
-                key={thought.id || `thought-${index}-${thought.timestamp}`}
-                thought={thought}
-                isStreaming={isStreaming && index === sortedThoughts.length - 1}
-                index={index}
-              />
-            ))}
-          </AnimatePresence>
+          {sortedThoughts.map((thought, index) => (
+            <AgentThoughtCard
+              key={thought.id || `thought-${index}-${thought.timestamp}`}
+              thought={thought}
+              isStreaming={isStreaming && index === sortedThoughts.length - 1}
+            />
+          ))}
         </div>
       </div>
     </div>

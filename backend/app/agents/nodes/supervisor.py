@@ -123,7 +123,7 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         # Note: iteration is 0-indexed, so iteration 3 means 4th iteration (0,1,2,3)
         elif (iteration > max_iterations or 
               safety_visits > max_visits_per_agent or 
-              (critic_visits > max_visits_per_agent and has_been_to_critic)):
+              (critic_visits >= max_visits_per_agent and has_been_to_critic)):
             sys.stderr.write(f"Workflow limits reached: iteration={iteration} (max={max_iterations}), safety_visits={safety_visits} (max={max_visits_per_agent}), critic_visits={critic_visits} (max={max_visits_per_agent})\n")
             state["next_agent"] = "finish"
             state["status"] = "awaiting_approval"
@@ -413,6 +413,37 @@ Return ONLY valid JSON, no other text."""
             "Supervisor routing error detected. Finishing workflow for safety.",
             "feedback"
         )
+    
+    # Final safety check: prevent routing to agents that have exceeded visit limits
+    # This prevents the workflow from calling an agent more than max_visits_per_agent times
+    if state.get("next_agent") == "clinical_critic":
+        # Re-check visit count right before routing to ensure we haven't exceeded limit
+        current_critic_visits = ProtocolService.get_agent_visit_count(db, protocol_id, "clinical_critic")
+        if current_critic_visits >= max_visits_per_agent:
+            sys.stderr.write(f"WARNING: Blocking Clinical Critic routing - visit limit reached ({current_critic_visits}/{max_visits_per_agent})\n")
+            state["next_agent"] = "finish"
+            state["status"] = "awaiting_approval"
+            state["should_halt"] = True
+            update_protocol_status(db, protocol_id, "awaiting_approval")
+            save_agent_thought(
+                db, protocol_id, "supervisor", "Supervisor",
+                f"Clinical Critic visit limit reached ({current_critic_visits}/{max_visits_per_agent}). Finishing workflow.",
+                "action"
+            )
+    elif state.get("next_agent") == "safety_guardian":
+        # Re-check visit count for Safety Guardian too
+        current_safety_visits = ProtocolService.get_agent_visit_count(db, protocol_id, "safety_guardian")
+        if current_safety_visits >= max_visits_per_agent:
+            sys.stderr.write(f"WARNING: Blocking Safety Guardian routing - visit limit reached ({current_safety_visits}/{max_visits_per_agent})\n")
+            state["next_agent"] = "finish"
+            state["status"] = "awaiting_approval"
+            state["should_halt"] = True
+            update_protocol_status(db, protocol_id, "awaiting_approval")
+            save_agent_thought(
+                db, protocol_id, "supervisor", "Supervisor",
+                f"Safety Guardian visit limit reached ({current_safety_visits}/{max_visits_per_agent}). Finishing workflow.",
+                "action"
+            )
     
     state["last_agent"] = "supervisor"
     return state

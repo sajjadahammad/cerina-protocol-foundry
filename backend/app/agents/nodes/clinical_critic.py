@@ -73,8 +73,29 @@ Provide your assessment in JSON format:
             suggestions = [suggestions]
         elif not isinstance(suggestions, list):
             suggestions = []
-        # Ensure all suggestions are strings
-        suggestions = [str(s) if not isinstance(s, str) else s for s in suggestions]
+        
+        # Extract suggestion text from dicts or convert to strings
+        formatted_suggestions = []
+        for s in suggestions:
+            if isinstance(s, dict):
+                # Extract suggestion text from dict format like {'category': 'X', 'suggestion': 'Y'}
+                suggestion_text = s.get("suggestion", s.get("text", s.get("content", str(s))))
+                if isinstance(suggestion_text, str) and suggestion_text:
+                    formatted_suggestions.append(suggestion_text)
+                else:
+                    # Fallback: format the dict nicely
+                    category = s.get("category", "")
+                    suggestion_text = s.get("suggestion", str(s))
+                    if category:
+                        formatted_suggestions.append(f"{category}: {suggestion_text}")
+                    else:
+                        formatted_suggestions.append(str(suggestion_text))
+            elif isinstance(s, str):
+                formatted_suggestions.append(s)
+            else:
+                formatted_suggestions.append(str(s))
+        
+        suggestions = formatted_suggestions
         
         state["empathy_metrics"] = {
             "score": int(empathy_data.get("score", 75)),
