@@ -1,4 +1,5 @@
 """Clinical Critic agent node: evaluates empathy, tone, and structure."""
+from datetime import datetime
 from app.agents.state import ProtocolState
 from app.agents.nodes.common import save_agent_thought
 from app.utils.llm import get_llm
@@ -10,6 +11,10 @@ from sqlalchemy.orm import Session
 def clinical_critic_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Clinical Critic agent: evaluates empathy, tone, and structure."""
     protocol_id = state["protocol_id"]
+    
+    # Initialize agent_notes if not present
+    if "agent_notes" not in state:
+        state["agent_notes"] = []
     
     save_agent_thought(
         db, protocol_id, "clinical_critic", "Clinical Critic",
@@ -77,6 +82,21 @@ Provide your assessment in JSON format:
             "suggestions": suggestions  # Now guaranteed to be a list of strings
         }
         
+        # Write suggestions to scratchpad
+        for suggestion in suggestions:
+            state["agent_notes"].append({
+                "role": "clinical_critic",
+                "content": f"Improvement suggestion: {suggestion}",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+        # Add summary note to scratchpad
+        state["agent_notes"].append({
+            "role": "clinical_critic",
+            "content": f"Clinical review complete. Empathy score: {state['empathy_metrics']['score']}/100. Tone: {state['empathy_metrics']['tone']}.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
         # Update protocol in database
         protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
         if protocol:
@@ -108,6 +128,12 @@ Provide your assessment in JSON format:
             "tone": "neutral",
             "suggestions": [f"Review error: {str(e)}"]
         }
+        # Write error to scratchpad
+        state["agent_notes"].append({
+            "role": "clinical_critic",
+            "content": f"Error during clinical review: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     state["last_agent"] = "clinical_critic"
     state["next_agent"] = "supervisor"

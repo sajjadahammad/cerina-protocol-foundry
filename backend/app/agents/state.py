@@ -5,7 +5,7 @@ from langgraph.graph.message import add_messages
 
 class AgentNote(TypedDict):
     """A note left by an agent in the shared scratchpad."""
-    agent: str  # drafter, safety_guardian, clinical_critic, supervisor
+    role: str  # drafter, safety_guardian, clinical_critic, supervisor (agent identifier)
     content: str
     timestamp: str
 
@@ -30,7 +30,8 @@ class ProtocolState(TypedDict):
     empathy_metrics: Dict[str, Any]  # {"score": int, "tone": str, "suggestions": List[str]}
     
     # Agent scratchpad (shared notes)
-    agent_notes: Annotated[List[AgentNote], add_messages]
+    # Note: Not using add_messages because agent_notes are custom notes, not LangChain messages
+    agent_notes: List[AgentNote]
     
     # Iteration tracking
     iteration_count: int

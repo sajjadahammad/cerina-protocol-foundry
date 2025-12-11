@@ -14,11 +14,23 @@ def drafter_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Drafter agent: creates and revises protocol drafts using LLM."""
     protocol_id = state["protocol_id"]
     
+    # Initialize agent_notes if not present
+    if "agent_notes" not in state:
+        state["agent_notes"] = []
+    
     save_agent_thought(
         db, protocol_id, "drafter", "Drafter",
         "Starting draft creation/revision process.",
         "thought"
     )
+    
+    # Read previous agent notes from scratchpad for context
+    previous_notes = state.get("agent_notes", [])
+    scratchpad_context = ""
+    if previous_notes:
+        scratchpad_context = "\n\nPrevious Agent Notes (for context):\n"
+        for note in previous_notes[-10:]:  # Last 10 notes to avoid prompt bloat
+            scratchpad_context += f"- [{note['role']}]: {note['content']}\n"
     
     # Build prompt based on state
     if state["needs_revision"] and state["revision_reasons"]:
@@ -39,6 +51,7 @@ Intent: {state['intent']}
 
 {'Empathy Feedback:' if state.get('empathy_metrics', {}).get('suggestions') else ''}
 {chr(10).join('- ' + s for s in state.get('empathy_metrics', {}).get('suggestions', []))}
+{scratchpad_context}
 
 Create a comprehensive, structured CBT protocol that:
 1. Is safe and appropriate for clinical use
@@ -55,6 +68,7 @@ Create a comprehensive CBT protocol based on:
 
 Protocol Type: {state['protocol_type']}
 Intent: {state['intent']}
+{scratchpad_context}
 
 The protocol should be:
 - Safe and appropriate for clinical use
@@ -74,6 +88,13 @@ Format as clear, actionable steps that a clinician can use with a patient."""
         # Only increment iteration if we actually created new content
         if not state.get("needs_revision") or state["iteration_count"] == 0:
             state["iteration_count"] += 1
+        
+        # Write to scratchpad
+        state["agent_notes"].append({
+            "role": "drafter",
+            "content": f"Draft {'revised' if state.get('needs_revision') else 'created'} (version {state['iteration_count']}). Length: {len(draft_content)} characters.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         
         # Update protocol in database
         protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
@@ -116,6 +137,13 @@ Format as clear, actionable steps that a clinician can use with a patient."""
             f"Error during draft creation: {display_error}",
             "feedback"
         )
+        
+        # Write error to scratchpad
+        state["agent_notes"].append({
+            "role": "drafter",
+            "content": f"Error during draft creation: {display_error}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         
         # Don't loop forever on API errors - mark as failed after a few attempts
         error_count = len([r for r in state.get("revision_reasons", []) if "Drafting error" in r or "503" in r])

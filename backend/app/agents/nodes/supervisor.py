@@ -1,4 +1,5 @@
 """Supervisor agent node: routes to appropriate agent based on state."""
+from datetime import datetime
 from app.agents.state import ProtocolState
 from app.utils.protocol_state import sync_state_from_db, update_protocol_status
 from app.services.protocol_service import ProtocolService
@@ -9,6 +10,10 @@ from sqlalchemy.orm import Session
 def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Supervisor agent: routes to appropriate agent based on state."""
     protocol_id = state["protocol_id"]
+    
+    # Initialize agent_notes if not present
+    if "agent_notes" not in state:
+        state["agent_notes"] = []
     
     # Always sync state from database first to get latest metrics
     state = sync_state_from_db(state, db)
@@ -26,6 +31,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         state["next_agent"] = "finish"
         state["status"] = "awaiting_approval"
         update_protocol_status(db, protocol_id, "awaiting_approval")
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": "Protocol ready for human approval. Finishing workflow.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
             "Protocol is ready for human approval. Finishing workflow.",
@@ -34,6 +44,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
     elif not state["current_draft"] or state["current_draft"].strip() == "":
         # No draft yet, start with drafter
         state["next_agent"] = "drafter"
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": "No draft exists. Routing to Drafter to create initial draft.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
             "No draft exists. Routing to Drafter to create initial draft.",
@@ -43,9 +58,15 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         # Needs revision, go back to drafter
         state["next_agent"] = "drafter"
         state["needs_revision"] = False
+        revision_note = f"Revision needed: {', '.join(state['revision_reasons'])}. Routing to Drafter."
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": revision_note,
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
-            f"Revision needed: {', '.join(state['revision_reasons'])}. Routing to Drafter.",
+            revision_note,
             "action"
         )
     elif iteration >= 1 and state["current_draft"] and len(state["current_draft"].strip()) > 100:
@@ -62,6 +83,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
             state["status"] = "awaiting_approval"
             state["should_halt"] = True
             update_protocol_status(db, protocol_id, "awaiting_approval")
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Maximum iterations reached. Protocol ready for human approval.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Maximum iterations reached. Protocol ready for human approval.",
@@ -70,6 +96,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         elif not has_been_to_safety:
             # First time with valid draft: draft -> safety -> critic
             state["next_agent"] = "safety_guardian"
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Initial draft complete. Routing to Safety Guardian for review.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Initial draft complete. Routing to Safety Guardian for review.",
@@ -78,6 +109,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         elif state["safety_score"]["score"] == 0:
             # Safety score not set yet, go to safety guardian
             state["next_agent"] = "safety_guardian"
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Routing to Safety Guardian for initial safety review.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Routing to Safety Guardian for initial safety review.",
@@ -86,6 +122,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         elif not has_been_to_critic and state["safety_score"]["score"] >= 80:
             # Safety passed, now go to clinical critic
             state["next_agent"] = "clinical_critic"
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Safety review passed. Routing to Clinical Critic for empathy and tone review.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Safety review passed. Routing to Clinical Critic for empathy and tone review.",
@@ -94,6 +135,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         elif (state["empathy_metrics"]["score"] == 0 or not has_been_to_critic) and state["safety_score"]["score"] >= 80:
             # Empathy metrics not set yet or Clinical Critic hasn't been called, go to clinical critic
             state["next_agent"] = "clinical_critic"
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Routing to Clinical Critic for empathy and tone review.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Routing to Clinical Critic for empathy and tone review.",
@@ -105,6 +151,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
             state["status"] = "awaiting_approval"
             state["should_halt"] = True
             update_protocol_status(db, protocol_id, "awaiting_approval")
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Protocol meets quality thresholds. Ready for human approval.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Protocol meets quality thresholds. Ready for human approval.",
@@ -115,6 +166,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         state["next_agent"] = "drafter"
         state["needs_revision"] = True
         state["revision_reasons"].append("Safety score below threshold")
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": "Safety score below threshold. Routing to Drafter for revision.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
             "Safety score below threshold. Routing to Drafter for revision.",
@@ -126,6 +182,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         state["needs_revision"] = True
         if "Empathy score below threshold" not in state["revision_reasons"]:
             state["revision_reasons"].append("Empathy score below threshold")
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": "Empathy score below threshold. Routing to Drafter for revision.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
             "Empathy score below threshold. Routing to Drafter for revision.",
@@ -137,6 +198,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         has_been_to_critic = ProtocolService.has_agent_visited(db, protocol_id, "clinical_critic")
         if state["empathy_metrics"]["score"] == 0 or (state["empathy_metrics"]["score"] < 70 and not has_been_to_critic):
             state["next_agent"] = "clinical_critic"
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Continuing refinement cycle. Routing to Clinical Critic.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Continuing refinement cycle. Routing to Clinical Critic.",
@@ -148,6 +214,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
             state["status"] = "awaiting_approval"
             state["should_halt"] = True
             update_protocol_status(db, protocol_id, "awaiting_approval")
+            state["agent_notes"].append({
+                "role": "supervisor",
+                "content": "Protocol meets quality thresholds. Ready for human approval.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
             save_agent_thought(
                 db, protocol_id, "supervisor", "Supervisor",
                 "Protocol meets quality thresholds. Ready for human approval.",
@@ -159,6 +230,11 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         state["status"] = "awaiting_approval"
         state["should_halt"] = True
         update_protocol_status(db, protocol_id, "awaiting_approval")
+        state["agent_notes"].append({
+            "role": "supervisor",
+            "content": "Maximum iterations reached. Protocol ready for human approval.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
         save_agent_thought(
             db, protocol_id, "supervisor", "Supervisor",
             "Maximum iterations reached. Protocol ready for human approval.",

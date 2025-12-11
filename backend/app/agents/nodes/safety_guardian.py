@@ -1,4 +1,5 @@
 """Safety Guardian agent node: checks for safety issues and medical advice."""
+from datetime import datetime
 from app.agents.state import ProtocolState
 from app.agents.nodes.common import save_agent_thought
 from app.utils.llm import get_llm
@@ -10,6 +11,10 @@ from sqlalchemy.orm import Session
 def safety_guardian_node(state: ProtocolState, db: Session) -> ProtocolState:
     """Safety Guardian agent: checks for safety issues and medical advice."""
     protocol_id = state["protocol_id"]
+    
+    # Initialize agent_notes if not present
+    if "agent_notes" not in state:
+        state["agent_notes"] = []
     
     save_agent_thought(
         db, protocol_id, "safety_guardian", "Safety Guardian",
@@ -56,6 +61,22 @@ Be thorough but fair. Only flag genuine safety concerns."""
             "notes": safety_data.get("notes", "Safety review completed")
         }
         
+        # Write to scratchpad
+        if state["safety_score"]["flags"]:
+            for flag in state["safety_score"]["flags"]:
+                state["agent_notes"].append({
+                    "role": "safety_guardian",
+                    "content": f"Safety flag: {flag}",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+        
+        # Add summary note to scratchpad
+        state["agent_notes"].append({
+            "role": "safety_guardian",
+            "content": f"Safety review complete. Score: {state['safety_score']['score']}/100. {len(state['safety_score']['flags'])} flag(s) raised.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
         # Update protocol in database
         protocol = db.query(Protocol).filter(Protocol.id == protocol_id).first()
         if protocol:
@@ -87,6 +108,12 @@ Be thorough but fair. Only flag genuine safety concerns."""
             "flags": ["Safety review error"],
             "notes": f"Error: {str(e)}"
         }
+        # Write error to scratchpad
+        state["agent_notes"].append({
+            "role": "safety_guardian",
+            "content": f"Error during safety review: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     state["last_agent"] = "safety_guardian"
     state["next_agent"] = "supervisor"
