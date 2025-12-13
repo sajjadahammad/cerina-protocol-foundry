@@ -8,9 +8,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
-    transformMode: {
-      web: [/\.[jt]sx?$/],
-    },
     include: ['__tests__/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
