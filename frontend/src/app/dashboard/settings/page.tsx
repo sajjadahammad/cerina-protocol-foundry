@@ -1,6 +1,6 @@
-import { ProfileSettings } from "@/components/profile-settings"
-import { AppearanceSettings } from "@/components/appearance-settings"
-import { ApiSettings } from "@/components/api-settings"
+import { ProfileSettings } from "@/components/settings/profile-settings"
+import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { ApiSettings } from "@/components/settings/api-settings"
 
 export default function SettingsPage() {
   return (

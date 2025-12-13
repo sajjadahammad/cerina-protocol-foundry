@@ -60,7 +60,7 @@ export const protocolsApi = {
 
   // SSE stream for real-time agent thoughts
   streamUrl: (protocolId: string, token?: string): string => {
-    // Get base URL without /api/v1 prefix for SSE (EventSource doesn't use axios)
+    // Get base URL for SSE streaming (fetch API supports headers, but keeping query param for compatibility)
     const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ""
     return `${baseURL}/api/v1/protocols/${protocolId}/stream${tokenParam}`

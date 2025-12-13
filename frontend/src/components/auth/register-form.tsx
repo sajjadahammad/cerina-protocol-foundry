@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, Loader2, Eye, EyeOff } from "lucide-react"
-import { Logo } from "@/components/logo"
+import { Logo } from "@/components/shared/logo"
 
 const registerSchema = z
   .object({

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { ProtocolTypeCard } from "./protocol-type-card"
-import { Logo } from "@/components/logo"
+import { Logo } from "@/components/shared/logo"
 import { ArrowLeft, ArrowRight, Loader2, Brain, Shield, Heart, Target, Sparkles, HelpCircle } from "lucide-react"
 import Link from "next/link"
 

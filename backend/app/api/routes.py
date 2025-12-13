@@ -30,11 +30,11 @@ from app.agents.graph import create_protocol_workflow, run_protocol_workflow
 from app.agents.nodes import save_agent_thought, finalize_node
 from app.agents.state import ProtocolState
 from app.utils.protocol_helpers import get_protocol_or_404, verify_protocol_status
-from app.api.websocket import router as websocket_router
+from app.api.sse import router as sse_router
 from app.api.chat import router as chat_router
 
 router = APIRouter()
-router.include_router(websocket_router)
+router.include_router(sse_router)
 router.include_router(chat_router)
 
 

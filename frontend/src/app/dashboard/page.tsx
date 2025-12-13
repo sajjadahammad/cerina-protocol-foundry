@@ -1,5 +1,5 @@
-import { StatsCards } from "@/components/stats-cards"
-import { RecentProtocols } from "@/components/recent-protocols"
+import { StatsCards } from "@/components/dashboard/stats-cards"
+import { RecentProtocols } from "@/components/dashboard/recent-protocols"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Plus } from "lucide-react"

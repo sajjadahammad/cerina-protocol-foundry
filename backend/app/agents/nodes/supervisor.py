@@ -88,8 +88,8 @@ def supervisor_node(state: ProtocolState, db: Session) -> ProtocolState:
         state = sync_state_from_db(state, db)
         
         # Safety limits to prevent infinite loops
-        max_iterations = 5  # Increased to allow more iterations for quality refinement
-        max_visits_per_agent = 3  # Increased to allow more agent visits
+        max_iterations = 7  # Increased to allow more iterations for quality refinement
+        max_visits_per_agent = 4  # Increased to allow more agent visits for better quality
         
         # CRITICAL: Check if Clinical Critic needs to be called BEFORE checking limits
         # This ensures Clinical Critic is always called after Safety Guardian, regardless of safety score
@@ -203,9 +203,13 @@ DECISION CRITERIA (IMPORTANT - FOLLOW THIS SEQUENCE):
    - The only exception: if safety score is 0 (review not completed yet)
    
 3. THIRD: After both reviews complete:
-   - If safety >= 80 AND empathy >= 70 → route to "finish" (ready for approval)
-   - If both agents have reviewed but scores are borderline → route to "finish" (human can review)
-   - If safety < 80 OR empathy < 70 → route to "drafter" for revision
+   - If iteration <= 2 (first or second try): Use more lenient thresholds
+     * If safety >= 75 AND empathy >= 65 → route to "finish" (ready for approval)
+     * If safety < 75 OR empathy < 65 → route to "drafter" for revision
+   - If iteration > 2 (third try and beyond): Use stricter thresholds
+     * If safety >= 80 AND empathy >= 70 → route to "finish" (ready for approval)
+     * If both agents have reviewed but scores are borderline → route to "finish" (human can review)
+     * If safety < 80 OR empathy < 70 → route to "drafter" for revision
    
 4. REVISION: Only after BOTH reviews are complete:
    - If safety < 80 → route to "drafter" for revision
@@ -290,6 +294,45 @@ Return ONLY valid JSON, no other text."""
                         state["revision_reasons"].append("Critical safety issues (score < 50)")
                     reasoning = f"Override: Both reviews complete, but safety score ({safety_score}/100) is critically low. Routing to Drafter for urgent revision. {reasoning}"
                     is_ready = False
+                
+                # Apply lenient thresholds for first/second iteration
+                safety_score = state["safety_score"].get("score", 0)
+                empathy_score = state["empathy_metrics"].get("score", 0)
+                
+                # Adjust thresholds based on iteration count
+                if iteration <= 2:
+                    # More lenient on first/second try
+                    safety_threshold = 75
+                    empathy_threshold = 65
+                else:
+                    # Stricter on third try and beyond
+                    safety_threshold = 80
+                    empathy_threshold = 70
+                
+                # Override LLM decision if scores meet thresholds
+                if (has_been_to_safety and has_been_to_critic and
+                    safety_score >= safety_threshold and empathy_score >= empathy_threshold):
+                    # Scores are good enough, finish workflow
+                    next_agent = "finish"
+                    is_ready = True
+                    reasoning = f"Scores meet quality thresholds (Safety: {safety_score} >= {safety_threshold}, Empathy: {empathy_score} >= {empathy_threshold}). {reasoning}"
+                elif (has_been_to_safety and has_been_to_critic and
+                      (safety_score < safety_threshold or empathy_score < empathy_threshold)):
+                    # Scores need improvement, route to drafter
+                    if next_agent != "clinical_critic":  # Don't override if routing to critic
+                        next_agent = "drafter"
+                        state["needs_revision"] = True
+                        # Create specific revision reasons based on which scores need improvement
+                        revision_reasons = state.get("revision_reasons", [])
+                        if safety_score < safety_threshold:
+                            if f"Safety score needs improvement (current: {safety_score}/100, target: {safety_threshold}+)" not in revision_reasons:
+                                revision_reasons.append(f"Safety score needs improvement (current: {safety_score}/100, target: {safety_threshold}+)")
+                        if empathy_score < empathy_threshold:
+                            if f"Empathy score needs improvement (current: {empathy_score}/100, target: {empathy_threshold}+)" not in revision_reasons:
+                                revision_reasons.append(f"Empathy score needs improvement (current: {empathy_score}/100, target: {empathy_threshold}+)")
+                        state["revision_reasons"] = revision_reasons
+                        is_ready = False
+                        reasoning = f"Scores need improvement (Safety: {safety_score}/{safety_threshold}, Empathy: {empathy_score}/{empathy_threshold}). {reasoning}"
                 
                 # Apply decision
                 if next_agent == "finish" or is_ready:

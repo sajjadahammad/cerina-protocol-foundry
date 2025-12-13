@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Shield, Heart, IterationCw, Eye, Edit, AlertCircle, Check, X, Copy, Download, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { MarkdownViewer } from "@/components/markdown-viewer"
+import { MarkdownViewer } from "@/components/shared/markdown-viewer"
 import { toast } from "sonner"
 import { ProtocolPDFDocument } from "./protocol-pdf"
 
@@ -21,14 +21,22 @@ export function ProtocolEditor() {
   const userScrolledUpRef = useRef(false)
 
   // Get display content - prioritize editedContent, then currentDraft
-  const displayContent = editedContent || activeProtocol?.currentDraft || ""
+  // Only show draft if workflow is complete (terminal states)
+  const terminalStates = ["awaiting_approval", "approved", "rejected"]
+  const isWorkflowComplete = activeProtocol?.status && terminalStates.includes(activeProtocol.status)
+  const isGenerating = activeProtocol?.status === "drafting" || activeProtocol?.status === "reviewing"
+  
+  // Only show content in terminal states, never during generation
+  const displayContent = isWorkflowComplete 
+    ? (editedContent || activeProtocol?.currentDraft || "") 
+    : ""
 
-  // Sync editedContent with currentDraft when protocol changes
+  // Sync editedContent with currentDraft when protocol completes
   useEffect(() => {
-    if (activeProtocol?.currentDraft && !editedContent) {
+    if (isWorkflowComplete && activeProtocol?.currentDraft && !editedContent) {
       setEditedContent(activeProtocol.currentDraft)
     }
-  }, [activeProtocol?.currentDraft, editedContent, setEditedContent])
+  }, [isWorkflowComplete, activeProtocol?.currentDraft, editedContent, setEditedContent])
 
   // Auto-scroll when content is streaming
   useEffect(() => {
@@ -100,7 +108,8 @@ export function ProtocolEditor() {
   const isApproved = activeProtocol.status === "approved"
   const isRejected = activeProtocol.status === "rejected"
   // Only show generating indicator if actively streaming AND content is still being generated
-  const showGenerating = isStreaming && (activeProtocol.status === "reviewing" || activeProtocol.status === "drafting") && !displayContent
+  // Show generating indicator when status is drafting/reviewing (not terminal states)
+  const showGenerating = isGenerating && (isStreaming || !displayContent)
 
   const handleCopy = async () => {
     try {
@@ -111,22 +120,22 @@ export function ProtocolEditor() {
     }
   }
 
-  const handleDownload = () => {
-    try {
-      const blob = new Blob([displayContent], { type: "text/markdown" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${activeProtocol.title.replace(/\s+/g, "_")}_protocol.md`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      toast.success("Protocol downloaded successfully")
-    } catch (error) {
-      toast.error("Failed to download protocol")
-    }
-  }
+  // const handleDownload = () => {
+  //   try {
+  //     const blob = new Blob([displayContent], { type: "text/markdown" })
+  //     const url = URL.createObjectURL(blob)
+  //     const a = document.createElement("a")
+  //     a.href = url
+  //     a.download = `${activeProtocol.title.replace(/\s+/g, "_")}_protocol.md`
+  //     document.body.appendChild(a)
+  //     a.click()
+  //     document.body.removeChild(a)
+  //     URL.revokeObjectURL(url)
+  //     toast.success("Protocol downloaded successfully")
+  //   } catch (error) {
+  //     toast.error("Failed to download protocol")
+  //   }
+  // }
 
   const handleDownloadPDF = async () => {
     try {
@@ -240,7 +249,7 @@ export function ProtocolEditor() {
                   <Copy className="mr-1.5 h-3.5 w-3.5" />
                   Copy
                 </Button>
-                <Button
+                {/* <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleDownload}
@@ -249,7 +258,7 @@ export function ProtocolEditor() {
                 >
                   <Download className="mr-1.5 h-3.5 w-3.5" />
                   Markdown
-                </Button>
+                </Button> */}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -324,20 +333,26 @@ export function ProtocolEditor() {
             value={displayContent}
             onChange={(e) => setEditedContent(e.target.value)}
             className="h-full min-h-[300px] resize-none font-mono text-sm leading-relaxed"
-            placeholder="Protocol content will appear here..."
-            disabled={isApproved}
+            placeholder={isGenerating ? "Generating protocol content..." : "Protocol content will appear here..."}
+            disabled={isApproved || isGenerating}
           />
         ) : (
           <div className="h-full min-h-[300px] rounded-md border border-border bg-card p-4">
             {displayContent ? (
               <MarkdownViewer content={displayContent} />
-            ) : (
+            ) : isGenerating ? (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">
                   <div className="mb-2 flex justify-center">
                     <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
                   </div>
                   <p className="text-sm text-muted-foreground">Generating protocol content...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">No content available</p>
                 </div>
               </div>
             )}

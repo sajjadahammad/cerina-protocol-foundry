@@ -1,4 +1,4 @@
-import { ProtocolHistoryTable } from "@/components/protocol-history-table"
+import { ProtocolHistoryTable } from "@/components/protocol/protocol-history-table"
 
 export default function HistoryPage() {
   return (

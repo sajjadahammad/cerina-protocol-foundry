@@ -1,10 +1,10 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
+import { use, useEffect, useState, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useProtocol, useProtocolStream, useApproveProtocol, useRejectProtocol } from "@/hooks/use-protocols"
-import { AgentThoughtsPanel } from "@/components/agent-thoughts-panel"
-import { ProtocolEditor } from "@/components/protocol-editor"
+import { AgentThoughtsPanel } from "@/components/agent/agent-thoughts-panel"
+import { ProtocolEditor } from "@/components/protocol/protocol-editor"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -22,13 +22,27 @@ import { useProtocolStore } from "@/stores/protocol-store"
 export default function ProtocolPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { data: protocol, isLoading, refetch } = useProtocol(id)
-  const { connect, disconnect } = useProtocolStream(id)
+  const { connect, disconnect, isConnected } = useProtocolStream(id)
   const { setActiveProtocol, editedContent } = useProtocolStore()
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
 
   const approveMutation = useApproveProtocol()
   const rejectMutation = useRejectProtocol()
+
+  // Track refetched statuses to prevent infinite loops
+  const refetchedStatusRef = useRef<Set<string>>(new Set())
+  const lastStatusRef = useRef<string | null>(null)
+  const lastProtocolIdRef = useRef<string | null>(null)
+
+  // Reset tracking when protocol ID changes
+  useEffect(() => {
+    if (protocol?.id && lastProtocolIdRef.current !== protocol.id) {
+      refetchedStatusRef.current.clear()
+      lastStatusRef.current = null
+      lastProtocolIdRef.current = protocol.id
+    }
+  }, [protocol?.id])
 
   // Sync active protocol with fetched data
   useEffect(() => {
@@ -37,47 +51,60 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
     }
   }, [protocol, setActiveProtocol])
 
+  // Handle connection/disconnection based on protocol status
   useEffect(() => {
     if (!protocol) return
 
-    // Connect SSE for agent thoughts if protocol is in an active state
-    const activeStatuses = ["drafting", "reviewing", "awaiting_approval"]
-    const shouldConnect = activeStatuses.includes(protocol.status)
+    const status = protocol.status
+    const protocolId = protocol.id
 
-    if (shouldConnect) {
+    // Connect streaming for agent thoughts if protocol is in an active state
+    const activeStatuses = ["drafting", "reviewing", "awaiting_approval"]
+    const shouldConnect = activeStatuses.includes(status)
+
+    if (shouldConnect && !isConnected) {
+      // Only connect if not already connected
       connect()
-    } else {
+    } else if (!shouldConnect && isConnected) {
       disconnect()
-      // Refetch once when workflow completes to get final state
-      if (protocol.status === "approved" || protocol.status === "rejected") {
+    }
+
+    // Refetch once when status changes to terminal state
+    // Only refetch if SSE is not connected (SSE should have already updated the cache)
+    const terminalStatuses = ["approved", "rejected", "awaiting_approval"]
+    if (terminalStatuses.includes(status) && lastStatusRef.current !== status && !isConnected) {
+      const statusKey = `${protocolId}-${status}`
+      if (!refetchedStatusRef.current.has(statusKey)) {
+        refetchedStatusRef.current.add(statusKey)
         refetch()
       }
+      lastStatusRef.current = status
     }
 
     return () => {
       // Only disconnect on unmount
-      disconnect()
+      if (isConnected) {
+        disconnect()
+      }
     }
-  }, [protocol?.id, connect, disconnect]) // Reconnect if protocol ID changes
+  }, [protocol?.id, protocol?.status, isConnected, connect, disconnect]) // Include connection state
 
-  // Separate effect to handle status changes and periodic refetch
+  // Fallback refetch only when SSE is disconnected and protocol is active
   useEffect(() => {
     if (!protocol) return
 
-    if (protocol.status === "awaiting_approval") {
-      // Refetch to get final state when workflow completes
-      refetch()
-    } else if (protocol.status === "reviewing" || protocol.status === "drafting") {
-      // Periodic refetch as fallback to ensure we get updates even if SSE fails
+    const status = protocol.status
+    const activeStatuses = ["reviewing", "drafting"]
+    
+    // Only set up fallback if status is active AND not connected
+    if (activeStatuses.includes(status) && !isConnected) {
       const fallbackInterval = setInterval(() => {
         refetch()
       }, 10000) // Refetch every 10 seconds as fallback
 
-      return () => {
-        clearInterval(fallbackInterval)
-      }
+      return () => clearInterval(fallbackInterval)
     }
-  }, [protocol?.status, protocol?.id, refetch])
+  }, [protocol?.status, isConnected]) // Only depend on status and connection state
 
   const handleApprove = () => {
     if (!protocol) return

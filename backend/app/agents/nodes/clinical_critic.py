@@ -33,12 +33,21 @@ Assess:
 3. Structure: Is it well-organized and easy to follow?
 4. Clinical quality: Does it follow evidence-based CBT principles?
 
-Provide your assessment in JSON format:
+CRITICAL: You MUST respond with ONLY valid JSON. No explanations, no markdown, just pure JSON.
+
+Provide your assessment in this EXACT JSON format (keep tone description concise, max 200 characters):
 {{
-    "score": <0-100>,  // Overall empathy/clinical quality score
-    "tone": "description of tone",
-    "suggestions": ["suggestion1", "suggestion2"]  // Specific improvement suggestions
-}}"""
+    "score": 85,
+    "tone": "Brief description of tone",
+    "suggestions": ["suggestion1", "suggestion2", "suggestion3"]
+}}
+
+IMPORTANT RULES:
+- "score" must be an integer between 0-100
+- "tone" must be a short string (max 200 characters), NOT a long paragraph
+- "suggestions" must be an array of strings, each suggestion should be concise
+- Keep the entire JSON response under 1000 characters to avoid truncation
+- Return ONLY the JSON object, nothing else"""
     
     try:
         llm = get_llm()

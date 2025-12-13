@@ -148,7 +148,7 @@ backend/
 │   │   └── checkpointer.py  # Database checkpointer
 │   ├── api/
 │   │   ├── routes.py        # REST endpoints
-│   │   ├── websocket.py     # SSE streaming
+│   │   ├── sse.py           # SSE streaming
 │   │   └── auth.py          # Authentication utilities
 │   └── mcp/
 │       └── server.py        # MCP server

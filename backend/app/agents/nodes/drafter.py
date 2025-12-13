@@ -36,6 +36,11 @@ def drafter_node(state: ProtocolState, db: Session) -> ProtocolState:
         for note in previous_notes[-10:]:  # Last 10 notes to avoid prompt bloat
             scratchpad_context += f"- [{note['role']}]: {note['content']}\n"
     
+    # Get current scores for context
+    current_safety_score = state.get('safety_score', {}).get('score', 0)
+    current_empathy_score = state.get('empathy_metrics', {}).get('score', 0)
+    iteration = state.get('iteration_count', 0)
+    
     # Build prompt based on state
     if state["needs_revision"] and state["revision_reasons"]:
         prompt = f"""You are a clinical protocol drafter specializing in Cognitive Behavioral Therapy (CBT) exercises.
@@ -45,6 +50,14 @@ Your task is to {'revise' if state['current_draft'] else 'create'} a CBT protoco
 Protocol Type: {state['protocol_type']}
 Intent: {state['intent']}
 
+CURRENT QUALITY SCORES (Iteration {iteration}):
+- Safety Score: {current_safety_score}/100
+- Empathy Score: {current_empathy_score}/100
+
+IMPORTANT: Your goal is to IMPROVE these scores with each revision. Aim for:
+- Safety Score: 80+ (currently {current_safety_score}/100)
+- Empathy Score: 70+ (currently {current_empathy_score}/100)
+
 {'REVISION NEEDED: ' + ', '.join(state['revision_reasons']) if state['revision_reasons'] else ''}
 
 {'Current Draft:' if state['current_draft'] else ''}
@@ -53,16 +66,28 @@ Intent: {state['intent']}
 {'Safety Feedback:' if state.get('safety_score', {}).get('notes') else ''}
 {state.get('safety_score', {}).get('notes', '')}
 
+{'Safety Flags:' if state.get('safety_score', {}).get('flags') else ''}
+{chr(10).join('- ' + str(f) for f in state.get('safety_score', {}).get('flags', [])) if state.get('safety_score', {}).get('flags') else ''}
+
 {'Empathy Feedback:' if state.get('empathy_metrics', {}).get('suggestions') else ''}
 {chr(10).join('- ' + s for s in state.get('empathy_metrics', {}).get('suggestions', []))}
 {scratchpad_context}
 
 Create a comprehensive, structured CBT protocol that:
-1. Is safe and appropriate for clinical use
-2. Uses empathetic, supportive language
-3. Is well-structured with clear steps
-4. Addresses the specific intent and protocol type
-5. Follows evidence-based CBT principles
+1. Addresses ALL safety concerns and flags to improve safety score (target: 80+)
+2. Incorporates ALL empathy suggestions to improve empathy score (target: 70+)
+3. Is safe and appropriate for clinical use
+4. Uses empathetic, supportive language
+5. Is well-structured with clear steps
+6. Addresses the specific intent and protocol type
+7. Follows evidence-based CBT principles
+
+CRITICAL INSTRUCTIONS:
+- DO NOT include scores (like "Safety Score: 95/100") in the protocol text. Scores are tracked separately by the system.
+- Focus on addressing the specific feedback provided to improve the scores.
+- Each revision should show measurable improvement in addressing safety concerns and empathy suggestions.
+- If safety flags exist, explicitly address each one in the revised protocol.
+- If empathy suggestions exist, incorporate them into the protocol language and structure.
 
 Format the protocol as clear, actionable steps that a clinician can use with a patient."""
     else:
@@ -74,12 +99,22 @@ Protocol Type: {state['protocol_type']}
 Intent: {state['intent']}
 {scratchpad_context}
 
+QUALITY TARGETS:
+- Safety Score: Aim for 80+ (addresses all safety concerns, no medical advice, proper boundaries)
+- Empathy Score: Aim for 70+ (warm, supportive, culturally sensitive language)
+
 The protocol should be:
-- Safe and appropriate for clinical use
-- Written in empathetic, supportive language
+- Safe and appropriate for clinical use (target: Safety Score 80+)
+- Written in empathetic, supportive language (target: Empathy Score 70+)
 - Well-structured with clear, actionable steps
 - Evidence-based and following CBT principles
 - Tailored to the specific intent provided
+
+CRITICAL INSTRUCTIONS:
+- DO NOT include scores (like "Safety Score: 95/100" or "Empathy Score: 98/100") in the protocol text. Scores are tracked separately by the system.
+- Focus on creating a high-quality protocol that will score well on safety and empathy metrics.
+- Include explicit safety measures (suicidality protocols, medical boundaries, contraindications).
+- Use warm, validating, and culturally sensitive language throughout.
 
 Format as clear, actionable steps that a clinician can use with a patient."""
     
@@ -142,8 +177,13 @@ Format as clear, actionable steps that a clinician can use with a patient."""
         protocol.current_draft = draft_content
         protocol.status = "reviewing"
         
-        # Only increment iteration if we actually created new content
-        if not state.get("needs_revision") or state["iteration_count"] == 0:
+        # Always increment iteration count when creating or revising a draft
+        # This ensures each draft/revision gets a unique version number
+        if state.get("iteration_count", 0) == 0:
+            # First draft: set to 1
+            state["iteration_count"] = 1
+        else:
+            # Subsequent drafts/revisions: increment
             state["iteration_count"] += 1
         
         protocol.iteration_count = state["iteration_count"]

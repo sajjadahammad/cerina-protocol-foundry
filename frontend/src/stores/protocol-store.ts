@@ -52,7 +52,13 @@ export const useProtocolStore = create<ProtocolState>((set) => ({
       }
     }),
   clearStreamingThoughts: () => set({ streamingThoughts: [] }),
-  setStreaming: (isStreaming) => set({ isStreaming }),
+  setStreaming: (isStreaming) => set((state) => {
+    // Only update if value actually changed to prevent infinite loops
+    if (state.isStreaming === isStreaming) {
+      return state
+    }
+    return { isStreaming }
+  }),
   setEditedContent: (editedContent) => set({ editedContent }),
   updateProtocolStatus: (status) =>
     set((state) => ({
