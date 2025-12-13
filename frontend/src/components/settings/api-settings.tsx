@@ -9,7 +9,7 @@ import { Copy, Check, Eye, EyeOff } from "lucide-react"
 export function ApiSettings() {
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState(false)
-  const apiKey = "cer_live_xxxxxxxxxxxxxxxxxxxx" // Placeholder
+  const apiKey = "cer_dummy_key_xxxxxxxxxxxxxxxxxxxx" // Placeholder
 
   const handleCopy = () => {
     navigator.clipboard.writeText(apiKey)
@@ -56,33 +56,90 @@ export function ApiSettings() {
           </p>
         </div>
 
-        <div className="space-y-2">
-          <Label>MCP Server Endpoint</Label>
-          <code className="block rounded-md bg-muted px-3 py-2 font-mono text-sm">http://localhost:8000/mcp</code>
-          <p className="text-xs text-muted-foreground">
-            Configure this endpoint in your MCP client to connect to the Cerina Foundry.
-          </p>
-        </div>
-
-        <div className="rounded-md border border-border bg-muted/50 p-4">
-          <h4 className="text-sm font-medium">Claude Desktop Configuration</h4>
-          <pre className="mt-2 overflow-x-auto rounded bg-background p-3 font-mono text-xs">
-            {JSON.stringify(
-              {
-                mcpServers: {
-                  cerina: {
-                    command: "uvx",
-                    args: ["cerina-mcp"],
-                    env: {
-                      CERINA_API_KEY: "your-api-key",
+        <div className="space-y-4">
+          <div className="rounded-md border border-border bg-muted/50 p-4">
+            <h4 className="text-sm font-medium mb-2">Claude Desktop Configuration (Windows)</h4>
+            <p className="text-xs text-muted-foreground mb-2">
+              Add this to your <code className="px-1 py-0.5 rounded bg-background">claude_desktop_config.json</code> file at:
+              <code className="block mt-1 px-1 py-0.5 rounded bg-background">%APPDATA%\\Claude\\claude_desktop_config.json</code>
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded bg-background p-3 font-mono text-xs">
+              {JSON.stringify(
+                {
+                  mcpServers: {
+                    "cerina-foundry": {
+                      command: "D:\\projects\\cerina-protocol-foundry\\backend\\venv\\Scripts\\python.exe",
+                      args: ["-m", "app.mcp.server"],
+                      cwd: "D:\\projects\\cerina-protocol-foundry\\backend",
+                      env: {
+                        PYTHONPATH: "D:\\projects\\cerina-protocol-foundry\\backend",
+                        MISTRAL_API_KEY: "your-mistral-api-key-here",
+                        LLM_PROVIDER: "mistral",
+                        MISTRAL_MODEL: "mistral-large-latest",
+                      },
                     },
                   },
                 },
-              },
-              null,
-              2,
-            )}
-          </pre>
+                null,
+                2,
+              )}
+            </pre>
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                <strong>Important:</strong> Replace the paths with your actual project paths.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <strong>Add API keys:</strong> Add one of the following to the <code className="px-1 py-0.5 rounded bg-background">env</code> section:
+              </p>
+              <ul className="text-xs text-muted-foreground list-disc list-inside ml-2 space-y-0.5">
+                <li>For Mistral: <code className="px-1 py-0.5 rounded bg-background">"MISTRAL_API_KEY": "your-key"</code></li>
+                <li>For Hugging Face: <code className="px-1 py-0.5 rounded bg-background">"HUGGINGFACE_API_KEY": "your-key"</code> and set <code className="px-1 py-0.5 rounded bg-background">"LLM_PROVIDER": "huggingface"</code></li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-muted/50 p-4">
+            <h4 className="text-sm font-medium mb-2">Claude Desktop Configuration (macOS/Linux)</h4>
+            <p className="text-xs text-muted-foreground mb-2">
+              Add this to your <code className="px-1 py-0.5 rounded bg-background">claude_desktop_config.json</code> file at:
+              <code className="block mt-1 px-1 py-0.5 rounded bg-background">~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS)
+              <code className="block mt-1 px-1 py-0.5 rounded bg-background">~/.config/Claude/claude_desktop_config.json</code> (Linux)
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded bg-background p-3 font-mono text-xs">
+              {JSON.stringify(
+                {
+                  mcpServers: {
+                    "cerina-foundry": {
+                      command: "/full/path/to/backend/venv/bin/python",
+                      args: ["-m", "app.mcp.server"],
+                      cwd: "/full/path/to/cerina-protocol-foundry/backend",
+                      env: {
+                        PYTHONPATH: "/full/path/to/cerina-protocol-foundry/backend",
+                        LLM_PROVIDER: "mistral",
+                        MISTRAL_MODEL: "mistral-large-latest",
+                        DATABASE_URL: "sqlite:///./cerina_foundry.db",
+                        SECRET_KEY: "your-secret-key",
+                      },
+                    },
+                  },
+                },
+                null,
+                2,
+              )}
+            </pre>
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                <strong>Important:</strong> Replace the paths with your actual project paths.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <strong>Add API keys:</strong> Add one of the following to the <code className="px-1 py-0.5 rounded bg-background">env</code> section:
+              </p>
+              <ul className="text-xs text-muted-foreground list-disc list-inside ml-2 space-y-0.5">
+                <li>For Mistral: <code className="px-1 py-0.5 rounded bg-background">"MISTRAL_API_KEY": "your-key"</code></li>
+                <li>For Hugging Face: <code className="px-1 py-0.5 rounded bg-background">"HUGGINGFACE_API_KEY": "your-key"</code> and set <code className="px-1 py-0.5 rounded bg-background">"LLM_PROVIDER": "huggingface"</code></li>
+              </ul>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

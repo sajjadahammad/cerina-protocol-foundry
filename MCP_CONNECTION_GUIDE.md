@@ -113,8 +113,6 @@ Add your API keys directly to the `env` section in Claude Desktop config:
         "MISTRAL_API_KEY": "your-mistral-api-key-here",
         "LLM_PROVIDER": "mistral",
         "MISTRAL_MODEL": "mistral-large-latest",
-        "DATABASE_URL": "sqlite:///./cerina_foundry.db",
-        "SECRET_KEY": "your-secret-key"
       }
     }
   }

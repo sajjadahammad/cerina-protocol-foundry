@@ -157,18 +157,21 @@ User Request → FastAPI Backend → LangGraph Workflow → Multi-Agent System �
 
 ---
 
-### 8. SSE Streaming (`backend/app/api/websocket.py`)
+### 8. SSE Streaming (`backend/app/api/sse.py`)
 
 **Purpose**: Real-time agent thought streaming via Server-Sent Events
 
 **Endpoint**: `GET /api/v1/protocols/{protocol_id}/stream?token=JWT`
 
+**Note**: File renamed from `websocket.py` to `sse.py` for clarity (uses SSE, not WebSockets)
+
 **How It Works**:
 1. Client connects with JWT token (query param, not header - EventSource limitation)
 2. Server polls database every 0.5 seconds for new `AgentThought` records
-3. New thoughts sent as SSE events
+3. New thoughts sent as SSE events with small delays (0.01s between thoughts) to prevent batching and enable line-by-line display
 4. Protocol updates (draft, status, metrics) also streamed
 5. Stream closes when status reaches terminal state (approved/rejected/awaiting_approval)
+6. Error handling: Gracefully handles client disconnections (GeneratorExit, BrokenPipeError, ConnectionResetError, OSError) with try-except blocks around yield statements
 
 **Event Format**:
 ```json
@@ -240,16 +243,24 @@ User Request → FastAPI Backend → LangGraph Workflow → Multi-Agent System �
 **State Sync**: Always syncs from database before routing to ensure latest metrics
 
 #### **Drafter Node** (`drafter_node`):
-**Role**: Creates and revises protocol drafts
+**Role**: Creates and revises protocol drafts with score improvement focus
 
 **Process**:
-1. Builds prompt with intent, type, current draft (if revision)
-2. Includes safety/empathy feedback if available
-3. Calls LLM (Qwen 2.5 Pro) to generate draft
-4. Updates `current_draft` in state and database
-5. Creates `ProtocolVersion` record
-6. Increments `iteration_count`
-7. Handles errors gracefully (API failures, parsing errors)
+1. Receives current scores (Safety, Empathy) and iteration count
+2. Builds prompt with intent, type, current draft (if revision)
+3. Includes explicit score improvement targets (Safety: 80+, Empathy: 70+)
+4. Includes specific safety flags and empathy suggestions for addressing
+5. **Critical Instruction**: Explicitly told NOT to include scores in protocol text (scores tracked separately)
+6. Calls LLM (Qwen 2.5 Pro) to generate draft
+7. Updates `current_draft` in state and database
+8. Creates `ProtocolVersion` record
+9. Increments `iteration_count`
+10. Handles errors gracefully (API failures, parsing errors)
+
+**Score Improvement Strategy**:
+- Each revision targets measurable improvement in addressing safety concerns and empathy suggestions
+- Receives specific feedback to incorporate into revisions
+- Scores should improve with each iteration
 
 **Error Handling**: 
 - API errors (503) → retry up to 2 times, then halt
@@ -420,28 +431,41 @@ supervisor (entry)
 - Loading states
 
 #### **useProtocolStream()**:
-**Purpose**: Manages SSE connection for real-time updates
+**Purpose**: Manages SSE connection for real-time updates using native EventSource API
 
 **Process**:
 1. Creates `EventSource` connection (only when protocol status is `drafting` or `reviewing`)
-2. Listens for `message` events
-3. Parses JSON data
-4. Updates React Query cache and Zustand store
-5. Handles `protocol_update` events (updates draft, status, metrics)
-6. Handles `agent_thought` events (adds to streaming thoughts)
-7. Closes on `complete` event or error
-8. Automatically disconnects when protocol reaches terminal state (`awaiting_approval`, `approved`, `rejected`)
+2. Sets connection timeout (10 seconds) to detect slow connections
+3. Listens for `message` events
+4. Parses JSON data
+5. Updates React Query cache and Zustand store
+6. Handles `protocol_update` events (updates draft, status, metrics)
+7. Handles `protocol_update_incremental` events (only in terminal states)
+8. Handles `agent_thought` events (adds to streaming thoughts)
+9. **Content Display Logic**: Only shows protocol content in terminal states (awaiting_approval, approved, rejected)
+10. **During Generation**: Clears draft content to prevent showing partial protocols
+11. Closes on `complete` event or error
+12. Automatically disconnects when protocol reaches terminal state
 
-**Smart Connection Management**: 
-- Only connects when protocol is actively being processed
-- Automatically disconnects when workflow completes
-- Prevents unnecessary connections for completed protocols
+**Connection Management**: 
+- Connection timeout: 10 seconds to establish connection
+- Auto-reconnection: Up to 5 attempts with 3-second delay between attempts
+- Error handling: Only logs errors when connection is actually closed (not during CONNECTING state)
+- Fallback: Periodic refetch (5 seconds) if max reconnection attempts reached
 
-**State Management**: Updates both React Query cache and Zustand store
+**Debounced Refetches**:
+- Agent role changes trigger refetch with 1-second debounce
+- Prevents excessive API calls when multiple thoughts arrive quickly
+- Only refetches when agentRole actually changes
+
+**State Management**: 
+- Updates both React Query cache and Zustand store
+- Prevents infinite loops with conditional state updates
+- Only updates if values actually changed
 
 ---
 
-### 4. Zustand Store (`frontend/stores/protocol-store.ts`)
+### 4. Zustand Store (`frontend/src/stores/protocol-store.ts`)
 
 **Purpose**: Client-side state management for protocol UI
 
@@ -453,36 +477,45 @@ supervisor (entry)
 
 **Actions**:
 - `setActiveProtocol()`: Sets active protocol, syncs editedContent
-- `addStreamingThought()`: Adds thought (prevents duplicates)
+- `addStreamingThought()`: Adds thought (prevents duplicates by ID)
 - `clearStreamingThoughts()`: Clears thought list
-- `setStreaming()`: Updates connection status
+- `setStreaming()`: Updates connection status (only if value changed to prevent infinite loops)
 - `setEditedContent()`: Updates edited content
 - `updateProtocolStatus()`: Updates protocol status
+
+**State Optimization**:
+- Conditional updates prevent unnecessary re-renders
+- Duplicate prevention for streaming thoughts
+- Value change checks before state updates
 
 **Usage**: Used by protocol editor and agent thoughts panel
 
 ---
 
-### 5. Protocol Editor (`frontend/src/components/protocol-editor.tsx`)
+### 5. Protocol Editor (`frontend/src/components/protocol/protocol-editor.tsx`)
 
 **Purpose**: Main UI for viewing/editing protocols
 
 **Features**:
 - **Header**: Title, status badge, metrics (safety, empathy, iterations)
 - **View Modes**: Preview (markdown) and Edit (textarea)
-- **Content Display**: Shows `editedContent` or `currentDraft`
+- **Content Display Logic**: 
+  - Only shows content in terminal states (awaiting_approval, approved, rejected)
+  - During generation (drafting/reviewing): Shows "Generating..." message, content is hidden
+  - Prevents showing partial/incomplete protocols during generation
 - **Status Indicators**: Visual feedback for different states
-- **Auto-sync**: Syncs `editedContent` with `currentDraft` on protocol change
+- **Auto-sync**: Syncs `editedContent` with `currentDraft` when protocol completes
+- **Auto-scroll**: Automatically scrolls to bottom when content is streaming (if user hasn't scrolled up)
 
 **States Handled**:
-- `drafting`/`reviewing`: Shows "Generating..." indicator
-- `awaiting_approval`: Ready for user approval
-- `approved`: Finalized
-- `rejected`: Failed
+- `drafting`/`reviewing`: Shows "Generating..." indicator, content hidden
+- `awaiting_approval`: Shows protocol content, ready for user approval
+- `approved`: Shows final protocol content
+- `rejected`: Shows protocol content (if available)
 
 ---
 
-### 6. Agent Thoughts Panel (`frontend/src/components/agent-thoughts-panel.tsx`)
+### 6. Agent Thoughts Panel (`frontend/src/components/agent/agent-thoughts-panel.tsx`)
 
 **Purpose**: Displays real-time agent thoughts
 
@@ -495,7 +528,7 @@ supervisor (entry)
 
 ---
 
-### 7. Register Form (`frontend/src/components/register-form.tsx`)
+### 7. Register Form (`frontend/src/components/auth/register-form.tsx`)
 
 **Purpose**: User registration with enhanced validation
 
@@ -517,7 +550,7 @@ supervisor (entry)
 
 ---
 
-### 8. Protocol History Table (`frontend/src/components/protocol-history-table.tsx`)
+### 8. Protocol History Table (`frontend/src/components/protocol/protocol-history-table.tsx`)
 
 **Purpose**: Displays paginated, searchable, filterable protocol list
 
@@ -555,7 +588,7 @@ supervisor (entry)
 
 ---
 
-### 9. Protocol Actions (`frontend/src/components/protocol-actions.tsx`)
+### 9. Protocol Actions (`frontend/src/components/protocol/protocol-actions.tsx`)
 
 **Purpose**: Action buttons for protocol management
 
@@ -761,6 +794,40 @@ User (approve) → API Route → Database (update) → Resume Workflow → Final
 
 ## Recent Enhancements
 
+### Component Organization
+- **Organized Structure**: Components grouped into logical folders:
+  - `protocol/`: Protocol-related components (editor, actions, history, PDF, forms)
+  - `agent/`: Agent thoughts components (panel, card)
+  - `auth/`: Authentication components (login, register, protected route)
+  - `settings/`: Settings components (API, appearance, profile)
+  - `dashboard/`: Dashboard components (layout, sidebar, stats, recent protocols)
+  - `theme/`: Theme components (toggle)
+  - `providers/`: Provider components (auth, query, theme)
+  - `shared/`: Shared utility components (markdown viewer, logo)
+  - `ui/`: UI primitives (shadcn/ui components)
+
+### SSE Streaming Improvements
+- **Native EventSource**: Switched from useCompletion to native EventSource API
+- **Connection Management**: 
+  - 10-second connection timeout
+  - Auto-reconnection with max 5 attempts (3-second delay)
+  - Better error handling (only logs actual errors, not CONNECTING state)
+- **Content Display**: Protocol content only shown in terminal states, hidden during generation
+- **Debounced Refetches**: 1-second debounce when agentRole changes to prevent excessive API calls
+- **State Optimization**: Conditional updates prevent infinite loops and unnecessary re-renders
+
+### Drafter Score Improvement
+- **Score Awareness**: Drafter receives current scores and explicit improvement targets
+- **Target Goals**: Safety Score 80+, Empathy Score 70+
+- **Feedback Integration**: Addresses specific safety flags and empathy suggestions
+- **Content Guidelines**: Explicitly instructed NOT to include scores in protocol text
+- **Iterative Improvement**: Scores should improve with each revision
+
+### Protocol Content Display
+- **Terminal States Only**: Content only displayed when status is awaiting_approval, approved, or rejected
+- **Generation State**: Shows "Generating..." message during drafting/reviewing
+- **Content Clearing**: Draft content cleared during generation to prevent showing partial protocols
+
 ### Pagination Support
 - **Backend**: Protocols list endpoint now supports `skip` and `limit` query parameters
 - **Frontend**: `useProtocols()` hook accepts pagination parameters
@@ -788,6 +855,22 @@ User (approve) → API Route → Database (update) → Resume Workflow → Final
 - **Automatic Disconnection**: Closes connection when workflow completes
 - **Resource Efficiency**: Prevents unnecessary connections for completed protocols
 - **Status-Based Logic**: Connection managed based on protocol status
+- **Connection Timeout**: 10-second timeout to detect slow/failed connections
+- **Auto-reconnection**: Intelligent reconnection with max 5 attempts (3-second delay)
+- **Error Handling**: Graceful error handling, only logs actual errors (not CONNECTING state)
+- **Debounced Refetches**: 1-second debounce for agent role changes to prevent excessive API calls
+
+### Component Organization
+- **Structured Folders**: Components organized by feature/domain:
+  - `protocol/`: Protocol management components
+  - `agent/`: Agent thoughts display components
+  - `auth/`: Authentication components
+  - `settings/`: User settings components
+  - `dashboard/`: Dashboard layout and widgets
+  - `theme/`: Theme management
+  - `providers/`: React context providers
+  - `shared/`: Shared utility components
+  - `ui/`: UI primitives (shadcn/ui)
 
 ### LLM Provider Documentation
 - **Switching Guide**: Comprehensive guide in `backend/LLM_SWITCHING.md`
