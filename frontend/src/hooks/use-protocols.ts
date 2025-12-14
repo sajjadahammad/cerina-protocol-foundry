@@ -6,9 +6,10 @@ import {
   type CreateProtocolRequest,
   type ApproveProtocolRequest,
   type AgentThought,
+  type Protocol,
 } from "@/lib/protocols"
 import { useProtocolStore } from "@/stores/protocol-store"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 export function useProtocols(skip: number = 0, limit: number = 20) {
   return useQuery({
@@ -96,10 +97,53 @@ export function useProtocolStream(protocolId: string | null) {
   const maxReconnectAttempts = 5
   const reconnectDelay = 3000 // 3 seconds
   const connectionTimeout = 10000 // 10 seconds to establish connection
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [protocolData, setProtocolData] = useState<Protocol | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
   
   // Track last agent role to detect changes
   const lastAgentRoleRef = useRef<string | null>(null)
   const agentRoleRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Fetch initial protocol data
+  useEffect(() => {
+    if (!protocolId) {
+      setProtocolData(null)
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    
+    // Try to get from cache first
+    const cachedData = queryClient.getQueryData<Protocol>(["protocol", protocolId])
+    if (cachedData) {
+      setProtocolData(cachedData)
+      setIsLoading(false)
+    } else {
+      // Fetch if not in cache
+      protocolsApi.get(protocolId)
+        .then((data) => {
+          setProtocolData(data)
+          queryClient.setQueryData(["protocol", protocolId], data)
+        })
+        .catch((err) => {
+          setError(err)
+        })
+        .finally(() => {
+          setIsLoading(false)
+        })
+    }
+  }, [protocolId, queryClient])
+
+  // Sync protocol data to store (separate effect to avoid render issues)
+  useEffect(() => {
+    if (protocolData) {
+      setActiveProtocol(protocolData)
+    }
+  }, [protocolData, setActiveProtocol])
 
   const processSSEMessage = useCallback((data: any) => {
     const terminalStates = ["awaiting_approval", "approved", "rejected"]
@@ -109,12 +153,12 @@ export function useProtocolStream(protocolId: string | null) {
       // Only process if chunk exists AND status is terminal
       const isTerminal = terminalStates.includes(data.status)
       if (data.chunk && isTerminal) {
-        queryClient.setQueryData(["protocol", protocolId], (old: any) => {
-          if (!old) return old
+        setProtocolData((old) => {
+          if (!old || old.id !== protocolId) return old
           const currentDraft = (old.currentDraft || "") + (data.chunk || "")
           // Only update if actually changed
           if (old.currentDraft === currentDraft) return old
-          return {
+          const updated = {
             ...old,
             currentDraft: currentDraft,
             status: data.status,
@@ -122,26 +166,15 @@ export function useProtocolStream(protocolId: string | null) {
             safetyScore: data.safetyScore,
             empathyMetrics: data.empathyMetrics,
           }
-        })
-        setActiveProtocol((prev) => {
-          if (prev?.id !== protocolId) return prev
-          const currentDraft = (prev.currentDraft || "") + (data.chunk || "")
-          // Only update if actually changed
-          if (prev.currentDraft === currentDraft) return prev
-          return {
-            ...prev,
-            currentDraft: currentDraft,
-            status: data.status,
-            iterationCount: data.iterationCount,
-            safetyScore: data.safetyScore,
-            empathyMetrics: data.empathyMetrics,
-          }
+          queryClient.setQueryData(["protocol", protocolId], updated)
+          setActiveProtocol(updated)
+          return updated
         })
       } else if (!isTerminal) {
         // During generation, clear the draft to prevent showing partial content
-        queryClient.setQueryData(["protocol", protocolId], (old: any) => {
-          if (!old) return old
-          return {
+        setProtocolData((old) => {
+          if (!old || old.id !== protocolId) return old
+          const updated = {
             ...old,
             currentDraft: "", // Clear during generation
             status: data.status,
@@ -149,17 +182,9 @@ export function useProtocolStream(protocolId: string | null) {
             safetyScore: data.safetyScore,
             empathyMetrics: data.empathyMetrics,
           }
-        })
-        setActiveProtocol((prev) => {
-          if (prev?.id !== protocolId) return prev
-          return {
-            ...prev,
-            currentDraft: "", // Clear during generation
-            status: data.status,
-            iterationCount: data.iterationCount,
-            safetyScore: data.safetyScore,
-            empathyMetrics: data.empathyMetrics,
-          }
+          queryClient.setQueryData(["protocol", protocolId], updated)
+          setActiveProtocol(updated)
+          return updated
         })
       }
     } else if (data.type === "protocol_update") {
@@ -167,9 +192,9 @@ export function useProtocolStream(protocolId: string | null) {
       const terminalStates = ["awaiting_approval", "approved", "rejected"]
       const isTerminal = terminalStates.includes(data.status)
       
-      queryClient.setQueryData(["protocol", protocolId], (old: any) => {
-        if (!old) return old
-        return {
+      setProtocolData((old) => {
+        if (!old || old.id !== protocolId) return old
+        const updated = {
           ...old,
           // Clear preview during process, only show when terminal
           currentDraft: isTerminal ? (data.currentDraft || "") : "",
@@ -178,18 +203,9 @@ export function useProtocolStream(protocolId: string | null) {
           safetyScore: data.safetyScore,
           empathyMetrics: data.empathyMetrics,
         }
-      })
-      setActiveProtocol((prev) => {
-        if (prev?.id !== protocolId) return prev
-        return {
-          ...prev,
-          // Clear preview during process, only show when terminal
-          currentDraft: isTerminal ? (data.currentDraft || "") : "",
-          status: data.status,
-          iterationCount: data.iterationCount,
-          safetyScore: data.safetyScore,
-          empathyMetrics: data.empathyMetrics,
-        }
+        queryClient.setQueryData(["protocol", protocolId], updated)
+        setActiveProtocol(updated)
+        return updated
       })
       
       // Stop streaming if status is terminal
@@ -209,12 +225,19 @@ export function useProtocolStream(protocolId: string | null) {
         eventSourceRef.current.close()
         eventSourceRef.current = null
       }
-      // Only invalidate if we don't have the final state already
-      // The protocol_update message should have already updated the cache
-      // So we only refetch if needed (e.g., to get any server-side computed fields)
-      // Use a small delay to avoid race conditions
+      // Refetch to get final state with any server-side computed fields
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
+        if (protocolId) {
+          protocolsApi.get(protocolId)
+            .then((data) => {
+              setProtocolData(data)
+              setActiveProtocol(data)
+              queryClient.setQueryData(["protocol", protocolId], data)
+            })
+            .catch((err) => {
+              console.error("Failed to refetch protocol after completion:", err)
+            })
+        }
       }, 500)
     } else if (data.id && data.content) {
       // It's an agent thought - debounce to prevent rapid updates
@@ -236,7 +259,17 @@ export function useProtocolStream(protocolId: string | null) {
             
             // Debounce refetch by 1 second to batch multiple role changes
             agentRoleRefetchTimeoutRef.current = setTimeout(() => {
-              queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
+              if (protocolId) {
+                protocolsApi.get(protocolId)
+                  .then((data) => {
+                    setProtocolData(data)
+                    setActiveProtocol(data)
+                    queryClient.setQueryData(["protocol", protocolId], data)
+                  })
+                  .catch((err) => {
+                    console.error("Failed to refetch protocol after agent role change:", err)
+                  })
+              }
               agentRoleRefetchTimeoutRef.current = null
             }, 1000)
           }
@@ -264,6 +297,7 @@ export function useProtocolStream(protocolId: string | null) {
     if (reconnectAttemptsRef.current === 0) {
       clearStreamingThoughts()
       lastAgentRoleRef.current = null // Reset agent role tracking
+      setConnectionError(null) // Clear errors on fresh connection attempt
     }
     
     setStreaming(true)
@@ -278,6 +312,7 @@ export function useProtocolStream(protocolId: string | null) {
     connectionTimeoutRef.current = setTimeout(() => {
       if (eventSourceRef.current && eventSourceRef.current.readyState === EventSource.CONNECTING) {
         console.warn("SSE connection timeout - closing and attempting reconnect")
+        setConnectionError("Connection timeout. Attempting to reconnect...")
         eventSourceRef.current.close()
         eventSourceRef.current = null
         // Trigger reconnection
@@ -322,12 +357,14 @@ export function useProtocolStream(protocolId: string | null) {
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current += 1
           console.log(`Attempting to reconnect SSE (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`)
+          setConnectionError(`Connection lost. Reconnecting... (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`)
           
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()
           }, reconnectDelay)
         } else {
           console.error("Max reconnection attempts reached. Please refresh the page.")
+          setConnectionError("Unable to maintain connection. Updates may be delayed.")
           // Fallback: periodically refetch to get updates
           const fallbackInterval = setInterval(() => {
             queryClient.invalidateQueries({ queryKey: ["protocol", protocolId] })
@@ -341,11 +378,12 @@ export function useProtocolStream(protocolId: string | null) {
         // Don't log errors for CONNECTING state - wait for timeout or CLOSED state
         // The connection timeout will handle cases where it takes too long
       } else if (readyState === EventSource.OPEN) {
-        // Connection is open - clear timeout
+        // Connection is open - clear timeout and error
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current)
           connectionTimeoutRef.current = null
         }
+        setConnectionError(null)
       }
     }
 
@@ -357,6 +395,7 @@ export function useProtocolStream(protocolId: string | null) {
       }
       console.log("SSE connection opened")
       reconnectAttemptsRef.current = 0
+      setConnectionError(null)
       setStreaming(true)
     }
 
@@ -412,5 +451,34 @@ export function useProtocolStream(protocolId: string | null) {
 
   const isConnected = eventSourceRef.current !== null && eventSourceRef.current.readyState === EventSource.OPEN
 
-  return { connect, disconnect, isConnected }
+  const refetch = useCallback(() => {
+    if (!protocolId) return Promise.resolve()
+    setIsLoading(true)
+    return protocolsApi.get(protocolId)
+      .then((data) => {
+        setProtocolData(data)
+        setActiveProtocol(data)
+        queryClient.setQueryData(["protocol", protocolId], data)
+        setError(null)
+        return data
+      })
+      .catch((err) => {
+        setError(err)
+        throw err
+      })
+      .finally(() => {
+        setIsLoading(false)
+      })
+  }, [protocolId, setActiveProtocol, queryClient])
+
+  return { 
+    data: protocolData, 
+    isLoading, 
+    error, 
+    refetch,
+    connect, 
+    disconnect, 
+    isConnected, 
+    connectionError 
+  }
 }
