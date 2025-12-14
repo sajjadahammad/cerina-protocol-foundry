@@ -167,7 +167,6 @@ export function useProtocolStream(protocolId: string | null) {
             empathyMetrics: data.empathyMetrics,
           }
           queryClient.setQueryData(["protocol", protocolId], updated)
-          setActiveProtocol(updated)
           return updated
         })
       } else if (!isTerminal) {
@@ -183,7 +182,6 @@ export function useProtocolStream(protocolId: string | null) {
             empathyMetrics: data.empathyMetrics,
           }
           queryClient.setQueryData(["protocol", protocolId], updated)
-          setActiveProtocol(updated)
           return updated
         })
       }
@@ -204,7 +202,6 @@ export function useProtocolStream(protocolId: string | null) {
           empathyMetrics: data.empathyMetrics,
         }
         queryClient.setQueryData(["protocol", protocolId], updated)
-        setActiveProtocol(updated)
         return updated
       })
       
@@ -231,7 +228,6 @@ export function useProtocolStream(protocolId: string | null) {
           protocolsApi.get(protocolId)
             .then((data) => {
               setProtocolData(data)
-              setActiveProtocol(data)
               queryClient.setQueryData(["protocol", protocolId], data)
             })
             .catch((err) => {
@@ -263,7 +259,6 @@ export function useProtocolStream(protocolId: string | null) {
                 protocolsApi.get(protocolId)
                   .then((data) => {
                     setProtocolData(data)
-                    setActiveProtocol(data)
                     queryClient.setQueryData(["protocol", protocolId], data)
                   })
                   .catch((err) => {
@@ -457,7 +452,6 @@ export function useProtocolStream(protocolId: string | null) {
     return protocolsApi.get(protocolId)
       .then((data) => {
         setProtocolData(data)
-        setActiveProtocol(data)
         queryClient.setQueryData(["protocol", protocolId], data)
         setError(null)
         return data
@@ -469,7 +463,7 @@ export function useProtocolStream(protocolId: string | null) {
       .finally(() => {
         setIsLoading(false)
       })
-  }, [protocolId, setActiveProtocol, queryClient])
+  }, [protocolId, queryClient])
 
   return { 
     data: protocolData, 

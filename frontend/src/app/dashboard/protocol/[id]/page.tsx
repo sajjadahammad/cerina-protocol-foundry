@@ -90,7 +90,7 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
     if (!protocol) return
 
     const status = protocol.status
-    const activeStatuses = ["reviewing", "drafting"]
+    const activeStatuses = ["reviewing", "drafting","awaiting_approval"]
     
     // Only set up fallback if status is active AND not connected
     if (activeStatuses.includes(status) && !isConnected) {
@@ -112,6 +112,8 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
       {
         onSuccess: () => {
           toast.success("Protocol approved successfully")
+          // Refetch to get updated protocol data immediately
+          refetch()
         },
         onError: (error: any) => {
           const message = error?.response?.data?.detail || error?.message || "Failed to approve protocol"
@@ -119,7 +121,7 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
         },
       },
     )
-  }, [protocol, editedContent, approveMutation])
+  }, [protocol, editedContent, approveMutation, refetch])
 
   const handleReject = useCallback(() => {
     if (!protocol) return
@@ -130,6 +132,8 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
           setRejectDialogOpen(false)
           setRejectReason("")
           toast.success("Protocol rejected")
+          // Refetch to get updated protocol data immediately
+          refetch()
         },
         onError: (error: any) => {
           const message = error?.response?.data?.detail || error?.message || "Failed to reject protocol"
@@ -137,7 +141,7 @@ export default function ProtocolPage({ params }: { params: Promise<{ id: string 
         },
       },
     )
-  }, [protocol, rejectReason, rejectMutation])
+  }, [protocol, rejectReason, rejectMutation, refetch])
 
   const handleRetry = useCallback(() => {
     refetch()
